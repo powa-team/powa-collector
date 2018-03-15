@@ -1,0 +1,15 @@
+{
+    "repository": {
+        "dsn": "postgresql://powa_repo@localhost:5432/powa",
+    },
+    "servers": {
+        "srv1": {
+            "dsn": "postgresql://user@localhost:5433/powa",
+            "frequency": 30;
+        },
+        "srv2": {
+            "dsn": "postgresql://user@localhost:5434/powa",
+            "frequency": 60;
+        }
+    }
+}

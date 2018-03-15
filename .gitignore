@@ -1,0 +1,5 @@
+.*.sw*
+*.pyc
+*.conf
+**/__pycache__/
+.pypirc

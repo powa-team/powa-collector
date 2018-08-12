@@ -14,15 +14,10 @@ __VERSION_NUM__ =[int(part) for part in __VERSION__.split('.')]
 from powa_remote.options import parse_options
 
 class PowaRemote():
-    def __init__(self, loglevel = None):
+    def __init__(self, loglevel = logging.INFO):
         self.workers = {}
         self.logger = logging.getLogger("powa-remote")
         self.stopping = False;
-
-        if (loglevel is not None):
-            loglevel = loglevel
-        else:
-            loglevel = logging.INFO
 
         extra = {'threadname': '-'}
         logging.basicConfig(format='%(asctime)s %(threadname)s: %(message)s ', level=loglevel)
@@ -34,8 +29,8 @@ class PowaRemote():
         self.config = parse_options()
         self.logger.info("Starting powa-remote...")
 
-        for s in self.config["servers"]:
-            self.register_worker(s, self.config["repository"], self.config["servers"][s])
+        for k, conf in self.config["servers"].items():
+            self.register_worker(k, self.config["repository"], conf)
 
         try:
             while (not self.stopping):
@@ -51,8 +46,8 @@ class PowaRemote():
             self.workers[name].start()
 
     def stop_all_workers(self):
-        for k in self.workers:
-            self.workers[k].ask_to_stop()
+        for k, worker in self.workers.items():
+            worker.ask_to_stop()
 
     def sighandler(self, signum, frame):
         if (signum == signal.SIGHUP):
@@ -70,16 +65,16 @@ class PowaRemote():
         config_new = parse_options()
 
         # check for removed servers
-        for k in self.workers:
-            if (self.workers[k].isAlive()):
+        for k, worker in self.workers.items():
+            if (worker.isAlive()):
                 continue
 
-            if (self.workers[k].is_stopping()):
+            if (worker.is_stopping()):
                 self.logger.warn("Oops")
 
             if (k not in config_new["servers"]):
                 self.logger.info("%s has been removed, stopping it..." % k)
-                self.workers[k].ask_to_stop()
+                worker.ask_to_stop()
 
         # check for added servers
         for k in config_new["servers"]:

@@ -61,6 +61,10 @@ class PowaRemote():
             self.logger.error("Unhandled signal %d" % signum);
 
     def reload_conf(self):
+        self.logger.info('List of workers:')
+        for k, worker in self.workers.items():
+            self.logger.info(" %s%s" % (k, "" if (worker.isAlive()) else
+                                        " (stopped)"))
         self.logger.info('Reloading...')
         config_new = parse_options()
 

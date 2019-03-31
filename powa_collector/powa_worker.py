@@ -1,3 +1,15 @@
+"""
+PowaThread: powa-collector dedicated remote server thread.
+
+One of such thread is started per remote server by the main thred.  Each
+threads will use 2 connections:
+
+    - a persistent dedicated connection to the remote server, where it'll get
+      the source data
+    - a connection to the repository server, to write the source data and
+      perform the snapshot.  This connection is created and dropped at each
+      checkpoint
+"""
 import threading
 import time
 import calendar
@@ -6,7 +18,7 @@ import logging
 from os import SEEK_SET
 import sys
 from powa_collector.snapshot import (get_snapshot_functions, get_src_query,
-                                  get_tmp_name)
+                                     get_tmp_name)
 if (sys.version_info < (3, 0)):
     from StringIO import StringIO
 else:
@@ -159,6 +171,7 @@ class PowaThread (threading.Thread):
             self.__repo_conn = None
 
     def __disconnect_all_and_exit(self):
+        # this is the exit point
         self.__disconnect_all()
         self.logger.info("stopped")
         self.__stopping.clear()

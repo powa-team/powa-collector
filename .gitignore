@@ -3,3 +3,6 @@
 *.conf
 **/__pycache__/
 .pypirc
+build/
+dist/
+powa_collector.egg-info/

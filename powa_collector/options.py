@@ -1,11 +1,23 @@
+"""
+Simple configuration file handling, as a JSON.
+"""
 import json
 
 
 def get_full_config(conn):
+    """
+    Return the full configuration, consisting of the information from the local
+    configuration file and the remote servers stored on the repository
+    database.
+    """
     return add_servers_config(conn, parse_options())
 
 
 def add_servers_config(conn, config):
+    """
+    Add the remote servers stored on the repository database to a given
+    configuration JSON.
+    """
     if ("servers" not in config):
         config["servers"] = {}
 
@@ -39,8 +51,19 @@ def add_servers_config(conn, config):
 
 
 def parse_options():
-    return parse_file('./powa-collector.conf')
+    """
+    Parse the local configuration file and return the resulting JSON, also
+    adding the implicit values if needed.
+    """
+    options = parse_file('./powa-collector.conf')
+    if ('debug' not in options):
+        options["debug"] = False
+
+    return options
 
 
 def parse_file(filepath):
+    """
+    Read a configuration file and return the JSON
+    """
     return json.load(open(filepath))

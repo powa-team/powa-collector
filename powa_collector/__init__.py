@@ -42,10 +42,15 @@ __VERSION_NUM__ = [int(part) for part in __VERSION__.split('.')]
 
 
 class PowaCollector():
-    def __init__(self, loglevel=logging.INFO):
+    def __init__(self):
         self.workers = {}
         self.logger = logging.getLogger("powa-collector")
         self.stopping = False
+
+        raw_options = parse_options()
+        loglevel = logging.INFO
+        if (raw_options["debug"]):
+            loglevel = logging.DEBUG
 
         extra = {'threadname': '-'}
         logging.basicConfig(

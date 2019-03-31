@@ -1,5 +1,6 @@
 {
     "repository": {
         "dsn": "postgresql://powa_user@localhost:5432/powa"
-    }
+    },
+    "debug": false
 }

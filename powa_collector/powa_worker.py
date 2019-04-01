@@ -16,6 +16,7 @@ import calendar
 import psycopg2
 import logging
 from os import SEEK_SET
+import random
 import sys
 from powa_collector.snapshot import (get_snapshot_functions, get_src_query,
                                      get_tmp_name)
@@ -180,7 +181,9 @@ class PowaThread (threading.Thread):
         self.last_time = None
         self.__check_powa()
 
-        if (not self.is_stopping() and self.last_time is None):
+        # if this worker has been restarted, restore the previous snapshot
+        # time to try to keep up on the same frequency
+        if (not self.is_stopping()):
             cur = None
             try:
                 cur = self.__repo_conn.cursor()
@@ -191,13 +194,29 @@ class PowaThread (threading.Thread):
                 self.last_time = cur.fetchone()[0]
                 cur.close()
                 self.__repo_conn.commit()
-                self.logger.debug("Last snapshot: %r" % self.last_time)
+                self.logger.debug("Retrieved last snapshot time:"
+                                  + " %r" % self.last_time)
             except Exception as e:
                 self.logger.warning("Could not retrieve last snapshot"
                                     + " time: %s" % (e))
                 if (cur is not None):
                     cur.close()
                 self.__repo_conn.rollback()
+
+        # if this worker was stopped longer than the configured frequency,
+        # assign last snapshot time to a random time between now and now minus
+        # duration.  This will help to spread the snapshots and avoid activity
+        # spikes if the collector itself was stopped for a long time, or if a
+        # lot of new servers were added
+        if (not self.is_stopping()
+            and (calendar.timegm(time.gmtime()) -
+                 self.last_time) > self.__config["frequency"]):
+            random.seed()
+            r = random.randint(0, self.__config["frequency"] - 1)
+            self.logger.debug("Spreading snapshot: setting last snapshot to"
+                              + " %d seconds ago (frequency: %d)" %
+                              (r, self.__config["frequency"]))
+            self.last_time = calendar.timegm(time.gmtime()) - r
 
         while (not self.is_stopping()):
             cur_time = calendar.timegm(time.gmtime())

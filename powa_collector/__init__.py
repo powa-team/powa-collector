@@ -217,7 +217,7 @@ class PowaCollector():
             if (worker.is_stopping()):
                 status = "stopping"
             elif (worker.isAlive()):
-                status = "running"
+                status = worker.get_status()
             else:
                 status = "stopped"
 
@@ -257,6 +257,9 @@ class PowaCollector():
         for k in config_new["servers"]:
             cur = config_new["servers"][k]
             if (not conf_are_equal(cur, self.workers[k].get_config())):
+                self.workers[k].ask_reload(cur)
+            # also try to reconnect if the worker experienced connection issue
+            elif(self.workers[k].get_status() != "running"):
                 self.workers[k].ask_reload(cur)
 
         self.config = config_new

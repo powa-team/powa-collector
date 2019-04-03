@@ -47,6 +47,7 @@ class PowaThread (threading.Thread):
         self.__pending_config = None
         self.__remote_conn = None
         self.__repo_conn = None
+        self.__last_repo_conn_errored = False
         self.logger = logging.getLogger("powa-collector")
         self.last_time = None
 
@@ -131,6 +132,7 @@ class PowaThread (threading.Thread):
                             ('PoWA collector - repo_conn for worker ' + self.name,))
                 cur.close()
                 self.__repo_conn.commit()
+                self.__last_repo_conn_errored = False
 
             if (self.__remote_conn is None):
                 self.logger.debug("Connecting on remote database...")
@@ -148,13 +150,12 @@ class PowaThread (threading.Thread):
                 self.__connected.set()
         except psycopg2.Error as e:
             self.logger.error("Error connecting on %s:\n%s" %
-                    (self.__config["dsn"], e))
+                              (self.__config["dsn"], e))
 
             if (self.__repo_conn is not None):
                 self.__report_error("%s" % (e))
-
-            self.__disconnect_all()
-            self.__stopping.set()
+            else:
+                self.__last_repo_conn_errored = True
 
     def __disconnect_all(self):
         if (self.__remote_conn is not None):
@@ -183,7 +184,7 @@ class PowaThread (threading.Thread):
 
         # if this worker has been restarted, restore the previous snapshot
         # time to try to keep up on the same frequency
-        if (not self.is_stopping()):
+        if (not self.is_stopping() and self.__repo_conn is not None):
             cur = None
             try:
                 cur = self.__repo_conn.cursor()
@@ -209,8 +210,9 @@ class PowaThread (threading.Thread):
         # spikes if the collector itself was stopped for a long time, or if a
         # lot of new servers were added
         if (not self.is_stopping()
-            and (calendar.timegm(time.gmtime()) -
-                 self.last_time) > self.__config["frequency"]):
+            and self.last_time is not None
+            and ((calendar.timegm(time.gmtime()) -
+                 self.last_time) > self.__config["frequency"])):
             random.seed()
             r = random.randint(0, self.__config["frequency"] - 1)
             self.logger.debug("Spreading snapshot: setting last snapshot to"
@@ -225,7 +227,17 @@ class PowaThread (threading.Thread):
 
             if ((self.last_time is None) or
                     (cur_time - self.last_time) >= self.__config["frequency"]):
-                self.__take_snapshot()
+                try:
+                    self.__take_snapshot()
+                except psycopg2.Error as e:
+                    self.logger.error("Error during snapshot: %s" % e)
+                    if (self.__repo_conn is None
+                            or self.__repo_conn.closed > 0):
+                        self.__repo_conn = None
+                    if (self.__remote_conn is None
+                            or self.__remote_conn.closed > 0):
+                        self.__remote_conn = None
+
                 self.last_time = calendar.timegm(time.gmtime())
             time_to_sleep = self.__config["frequency"] - (cur_time -
                                                           self.last_time)
@@ -259,6 +271,14 @@ class PowaThread (threading.Thread):
             return
 
         self.__connect()
+
+        if (self.__remote_conn is None):
+            self.logger.error("No connection to remote server, snapshot skipped")
+            return
+
+        if (self.__repo_conn is None):
+            self.logger.error("No connection to repository server, snapshot skipped")
+            return
 
         # get the list of snapshot functions, and their associated query_src
         cur = self.__repo_conn.cursor()
@@ -377,3 +397,10 @@ class PowaThread (threading.Thread):
         self.__got_sighup.set()
         self.__stop_sleep.set()
 
+    def get_status(self):
+        if (self.__repo_conn is None and self.__last_repo_conn_errored):
+            return "no connection to repository server"
+        if (self.__remote_conn is None):
+            return "no connection to remote server"
+        else:
+            return "running"

@@ -41,6 +41,10 @@ __VERSION__ = '0.0.1'
 __VERSION_NUM__ = [int(part) for part in __VERSION__.split('.')]
 
 
+def getVersion():
+    return __VERSION__
+
+
 class PowaCollector():
     def __init__(self):
         self.workers = {}

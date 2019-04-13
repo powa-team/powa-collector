@@ -21,6 +21,7 @@ setuptools.setup(
     url="https://powa.readthedocs.io/",
     packages=setuptools.find_packages(),
     install_requires=requires,
+    scripts=["powa-collector.py"],
     classifiers=[
         "Development Status :: 4 - Beta"
         "Programming Language :: Python :: 2",

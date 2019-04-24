@@ -71,6 +71,11 @@ class PowaCollector():
             self.__repo_conn.autocommit = True
             self.logger.debug("Connected.")
             cur = self.__repo_conn.cursor()
+            cur.execute("""SELECT
+                pg_catalog.set_config(name, '2000', false)
+                FROM pg_settings
+                WHERE name = 'lock_timeout'
+                AND setting = '0'""")
             cur.execute("SET application_name = %s",
                         ('PoWA collector - main thread'
                          + ' (' + __VERSION__ + ')', ))

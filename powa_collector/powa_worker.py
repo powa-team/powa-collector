@@ -128,6 +128,11 @@ class PowaThread (threading.Thread):
                 # make sure the GUC are present in case powa isn't in
                 # shared_preload_librairies
                 cur.execute("LOAD 'powa'")
+                cur.execute("""SELECT
+                    pg_catalog.set_config(name, '2000', false)
+                    FROM pg_settings
+                    WHERE name = 'lock_timeout'
+                    AND setting = '0'""")
                 cur.execute("SET application_name = %s",
                             ('PoWA collector - repo_conn for worker ' + self.name,))
                 cur.close()
@@ -142,6 +147,11 @@ class PowaThread (threading.Thread):
                 # make sure the GUC are present in case powa isn't in
                 # shared_preload_librairies
                 cur.execute("LOAD 'powa'")
+                cur.execute("""SELECT
+                    pg_catalog.set_config(name, '2000', false)
+                    FROM pg_settings
+                    WHERE name = 'lock_timeout'
+                    AND setting = '0'""")
                 cur.execute("SET application_name = %s",
                             ('PoWA collector - worker ' + self.name,))
                 cur.close()

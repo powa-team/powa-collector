@@ -35,8 +35,8 @@ def get_full_config(conn):
 
 def add_servers_config(conn, config):
     """
-    Add the remote servers stored on the repository database to a given
-    configuration JSON.
+    Add the activated remote servers stored on the repository database to a
+    given configuration JSON.
     """
     if ("servers" not in config):
         config["servers"] = {}
@@ -47,6 +47,7 @@ def add_servers_config(conn, config):
                     frequency
                 FROM powa_servers s
                 WHERE s.id > 0
+                AND s.frequency > 0
                 ORDER BY id
             """)
 

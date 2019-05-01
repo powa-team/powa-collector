@@ -69,9 +69,9 @@ class PowaThread (threading.Thread):
         if (self.__remote_conn is not None):
             cur = self.__remote_conn.cursor()
             cur.execute("""SELECT
-                (regexp_split_to_array(extversion, '\.'))[1]::int,
+                (pg_catalog.regexp_split_to_array(extversion, '\.'))[1]::int,
                 extversion
-                FROM pg_extension
+                FROM pg_catalog.pg_extension
                 WHERE extname = 'powa'""")
             res = cur.fetchone()
             cur.close()
@@ -102,13 +102,13 @@ class PowaThread (threading.Thread):
                 error = [msg]
             cur = self.__repo_conn.cursor()
             if (replace):
-                cur.execute("""UPDATE powa_snapshot_metas
+                cur.execute("""UPDATE public.powa_snapshot_metas
                     SET errors = %s
                     WHERE srvid = %s
                 """, (error, self.__config["srvid"]))
             else:
-                cur.execute("""UPDATE powa_snapshot_metas
-                    SET errors = array_cat(errors, %s)
+                cur.execute("""UPDATE public.powa_snapshot_metas
+                    SET errors = pg_catalog.array_cat(errors, %s)
                     WHERE srvid = %s
                 """, (error, self.__config["srvid"]))
             self.__repo_conn.commit()
@@ -130,7 +130,7 @@ class PowaThread (threading.Thread):
                 cur.execute("LOAD 'powa'")
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
-                    FROM pg_settings
+                    FROM pg_catalog.pg_settings
                     WHERE name = 'lock_timeout'
                     AND setting = '0'""")
                 cur.execute("SET application_name = %s",
@@ -149,7 +149,7 @@ class PowaThread (threading.Thread):
                 cur.execute("LOAD 'powa'")
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
-                    FROM pg_settings
+                    FROM pg_catalog.pg_settings
                     WHERE name = 'lock_timeout'
                     AND setting = '0'""")
                 cur.execute("SET application_name = %s",
@@ -199,7 +199,7 @@ class PowaThread (threading.Thread):
             try:
                 cur = self.__repo_conn.cursor()
                 cur.execute("""SELECT EXTRACT(EPOCH FROM snapts)
-                    FROM powa_snapshot_metas
+                    FROM public.powa_snapshot_metas
                     WHERE srvid = %d
                     """ % self.__config["srvid"])
                 self.last_time = cur.fetchone()[0]
@@ -318,7 +318,7 @@ class PowaThread (threading.Thread):
                 continue
 
             # execute the query_src functions to get local data (srvid 0)
-            self.logger.debug("Calling %s(0)..." % snapfunc[0])
+            self.logger.debug("Calling public.%s(0)..." % snapfunc[0])
             data_src_sql = get_src_query(snapfunc[0], srvid)
 
             # use savepoint, maybe the datasource is not setup on the remote
@@ -331,7 +331,7 @@ class PowaThread (threading.Thread):
             try:
                 data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
             except psycopg2.Error as e:
-                err = "Error while calling %s:\n%s" % (snapfunc[0], e)
+                err = "Error while calling public.%s:\n%s" % (snapfunc[0], e)
                 errors.append(err)
                 data_src.execute("ROLLBACK TO src")
 
@@ -362,7 +362,7 @@ class PowaThread (threading.Thread):
 
         # call powa_take_snapshot() for the given server
         self.logger.debug("Calling powa_take_snapshot(%d)..." % (srvid))
-        sql = ("SELECT powa_take_snapshot(%(srvid)d)" % {'srvid': srvid})
+        sql = ("SELECT public.powa_take_snapshot(%(srvid)d)" % {'srvid': srvid})
         ins.execute(sql)
         val = ins.fetchone()[0]
         if (val != 0):

@@ -73,7 +73,7 @@ class PowaCollector():
             cur = self.__repo_conn.cursor()
             cur.execute("""SELECT
                 pg_catalog.set_config(name, '2000', false)
-                FROM pg_settings
+                FROM pg_catalog.pg_settings
                 WHERE name = 'lock_timeout'
                 AND setting = '0'""")
             cur.execute("SET application_name = %s",

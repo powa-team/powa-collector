@@ -1,0 +1,10 @@
+0.0.2
+  Bugfix:
+    - Ignore deactivated servers
+
+  Miscellaneous:
+    - Set lock_timeout to 2s for every pg connection
+    - Fully qualify all objects in SQL queries
+
+0.0.1
+    Initial release

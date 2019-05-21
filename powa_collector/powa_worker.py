@@ -69,7 +69,7 @@ class PowaThread (threading.Thread):
         if (self.__remote_conn is not None):
             cur = self.__remote_conn.cursor()
             cur.execute("""SELECT
-                (pg_catalog.regexp_split_to_array(extversion, '\.'))[1]::int,
+                (split_part(extversion, '.', 1))::int,
                 extversion
                 FROM pg_catalog.pg_extension
                 WHERE extname = 'powa'""")

@@ -80,9 +80,23 @@ class PowaThread (threading.Thread):
                 self.logger.error("PoWA extension not found")
                 self.__disconnect_all()
                 self.__stopping.set()
+                return
             elif (res[0] < 4):
                 self.logger.error("Incompatible PoWA version, found %s,"
                                   " requires at least 4.0.0" % res[1])
+                self.__disconnect_all()
+                self.__stopping.set()
+                return
+
+            try:
+                # make sure the GUC are present in case powa isn't in
+                # shared_preload_librairies
+                cur = self.__remote_conn.cursor()
+                cur.execute("LOAD 'powa'")
+                cur.close()
+                self.__remote_conn.commit()
+            except psycopg2.Error as e:
+                self.logger.error("Could not load extension powa:\n%s" % e)
                 self.__disconnect_all()
                 self.__stopping.set()
 
@@ -144,9 +158,6 @@ class PowaThread (threading.Thread):
                 self.__remote_conn = psycopg2.connect(**self.__config['dsn'])
                 self.logger.debug("Connected.")
                 cur = self.__remote_conn.cursor()
-                # make sure the GUC are present in case powa isn't in
-                # shared_preload_librairies
-                cur.execute("LOAD 'powa'")
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
                     FROM pg_catalog.pg_settings

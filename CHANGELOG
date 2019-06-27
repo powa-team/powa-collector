@@ -1,6 +1,8 @@
 0.0.3
   Bugfix:
     - Support standard_conforming_strings = off
+    - Better error message for remote servers lacking powa extension (Thomas
+      Reiss and Julien Rouhaud)
 
 0.0.2
   Bugfix:

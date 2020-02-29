@@ -14,6 +14,7 @@ import threading
 import time
 import calendar
 import psycopg2
+from psycopg2.extras import DictCursor
 import logging
 from os import SEEK_SET
 import random
@@ -305,7 +306,7 @@ class PowaThread (threading.Thread):
             return
 
         # get the list of snapshot functions, and their associated query_src
-        cur = self.__repo_conn.cursor()
+        cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
         cur.execute(get_snapshot_functions(), (srvid,))
         snapfuncs = cur.fetchall()
         cur.close()
@@ -325,15 +326,21 @@ class PowaThread (threading.Thread):
             if (self.is_stopping()):
                 return
 
+            module_name = snapfunc["module"]
+            query_source = snapfunc["query_source"]
+            function_name = snapfunc["function_name"]
+
+            self.logger.debug("Working on module %s", module_name)
+
             # get the SQL needed to insert the query_src data on the remote
             # server into the transient unlogged table on the repository server
-            if (snapfunc[0] is None):
-                self.logger.warning("Not query_source for %s" % snapfunc[1])
+            if (query_source is None):
+                self.logger.warning("Not query_source for %s" % function_name)
                 continue
 
             # execute the query_src functions to get local data (srvid 0)
-            self.logger.debug("Calling public.%s(0)..." % snapfunc[0])
-            data_src_sql = get_src_query(snapfunc[0], srvid)
+            self.logger.debug("Calling public.%s(0)..." % query_source)
+            data_src_sql = get_src_query(query_source, srvid)
 
             # use savepoint, maybe the datasource is not setup on the remote
             # server
@@ -345,7 +352,7 @@ class PowaThread (threading.Thread):
             try:
                 data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
             except psycopg2.Error as e:
-                err = "Error while calling public.%s:\n%s" % (snapfunc[0], e)
+                err = "Error while calling public.%s:\n%s" % (query_source, e)
                 errors.append(err)
                 data_src.execute("ROLLBACK TO src")
 
@@ -357,12 +364,12 @@ class PowaThread (threading.Thread):
             buf.seek(0, SEEK_SET)
             try:
                 ins.copy_expert("COPY %s FROM stdin" %
-                                get_tmp_name(snapfunc[0]), buf)
+                                get_tmp_name(query_source), buf)
             except psycopg2.Error as e:
                 err = "Error while inserting data:\n%s" % e
                 self.logger.warning(err)
                 errors.append(err)
-                self.logger.warning("Giving up for %s", snapfunc[1])
+                self.logger.warning("Giving up for %s", function_name)
                 ins.execute("ROLLBACK TO data")
 
             buf.close()

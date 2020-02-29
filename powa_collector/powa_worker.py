@@ -267,8 +267,8 @@ class PowaThread (threading.Thread):
                                                           self.last_time)
 
             # sleep until the scheduled processing time, or if the main thread
-            # asked us to perform an action
-            if (time_to_sleep > 0):
+            # asked us to perform an action or if we were asked to stop.
+            if (time_to_sleep > 0 and not self.is_stopping()):
                 self.__stop_sleep.wait(time_to_sleep)
 
             # clear the event if it has been set.  We'll process all possible

@@ -1,6 +1,6 @@
 def get_snapshot_functions():
     # XXX should we ignore entries without query_src?
-    return """SELECT query_source, function_name
+    return """SELECT module, query_source, query_cleanup, function_name
               FROM public.powa_functions
               WHERE operation = 'snapshot' AND enabled
               AND srvid = %s

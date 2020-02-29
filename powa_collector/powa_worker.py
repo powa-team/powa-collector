@@ -307,8 +307,18 @@ class PowaThread (threading.Thread):
 
         # get the list of snapshot functions, and their associated query_src
         cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
-        cur.execute(get_snapshot_functions(), (srvid,))
-        snapfuncs = cur.fetchall()
+        cur.execute("SAVEPOINT snapshots")
+        try:
+            cur.execute(get_snapshot_functions(), (srvid,))
+            snapfuncs = cur.fetchall()
+            cur.execute("RELEASE snapshots")
+        except psycopg2.Error as e:
+            cur.execute("ROLLBACK TO snapshots")
+            err = "Error while getting snapshot functions:\n%s" % (e)
+            self.logger.error(err)
+            self.logger.error("Exiting worker for server %s..." % srvid)
+            self.__stopping.set()
+            return
         cur.close()
 
         if (not snapfuncs):
@@ -328,6 +338,7 @@ class PowaThread (threading.Thread):
 
             module_name = snapfunc["module"]
             query_source = snapfunc["query_source"]
+            cleanup_sql = snapfunc["query_cleanup"]
             function_name = snapfunc["function_name"]
 
             self.logger.debug("Working on module %s", module_name)
@@ -355,6 +366,19 @@ class PowaThread (threading.Thread):
                 err = "Error while calling public.%s:\n%s" % (query_source, e)
                 errors.append(err)
                 data_src.execute("ROLLBACK TO src")
+
+            # execute the cleanup query if provided
+            if (cleanup_sql is not None):
+                data_src.execute("SAVEPOINT src")
+                try:
+                    self.logger.debug("Calling %s..." % cleanup_sql)
+                    data_src.execute(cleanup_sql)
+                    self.logger.debug("Committing after cleanup query")
+                    self.__remote_conn.commit()
+                except psycopg2.Error as e:
+                    err = "Error while calling %s:\n%s" % (cleanup_sql, e)
+                    errors.append(err)
+                    data_src.execute("ROLLBACK TO src")
 
             if (self.is_stopping()):
                 return

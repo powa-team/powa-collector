@@ -373,8 +373,6 @@ class PowaThread (threading.Thread):
                 try:
                     self.logger.debug("Calling %s..." % cleanup_sql)
                     data_src.execute(cleanup_sql)
-                    self.logger.debug("Committing after cleanup query")
-                    self.__remote_conn.commit()
                 except psycopg2.Error as e:
                     err = "Error while calling %s:\n%s" % (cleanup_sql, e)
                     errors.append(err)

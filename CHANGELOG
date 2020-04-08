@@ -1,3 +1,9 @@
+1.0.0:
+  New feature:
+    - Handle the new query_cleanup query that may be run after getting remote
+      data.
+  Bugfix:
+    - Let workers quit immediately if they're asked to stop.
 0.0.3
   Bugfix:
     - Support standard_conforming_strings = off

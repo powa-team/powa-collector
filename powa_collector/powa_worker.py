@@ -217,11 +217,22 @@ class PowaThread (threading.Thread):
                     FROM public.powa_snapshot_metas
                     WHERE srvid = %d
                     """ % self.__config["srvid"])
-                self.last_time = cur.fetchone()[0]
+                row = cur.fetchone()
+                if not row:
+                    self.logger.error("Server %d was not correctly registered"
+                                      " (no powa_snapshot_metas record)"
+                                      % self.__config["srvid"])
+                    self.logger.debug("Server configuration details:\n%r"
+                                      % self.__config)
+                    self.logger.error("Stopping worker for server %d"
+                                      % self.__config["srvid"])
+                    self.__stopping.set()
+                if row:
+                    self.last_time = row[0]
+                    self.logger.debug("Retrieved last snapshot time:"
+                                      + " %r" % self.last_time)
                 cur.close()
                 self.__repo_conn.commit()
-                self.logger.debug("Retrieved last snapshot time:"
-                                  + " %r" % self.last_time)
             except Exception as e:
                 self.logger.warning("Could not retrieve last snapshot"
                                     + " time: %s" % (e))

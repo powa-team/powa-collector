@@ -46,6 +46,7 @@ class PowaThread (threading.Thread):
         self.__repository = repository
         self.__config = config
         self.__pending_config = None
+        self.__update_dep_versions = False
         self.__remote_conn = None
         self.__repo_conn = None
         self.__last_repo_conn_errored = False
@@ -60,7 +61,7 @@ class PowaThread (threading.Thread):
     def __repr__(self):
         return ("%s: %s" % (self.name, self.__config["dsn"]))
 
-    def __maybe_load_powa(self, conn):
+    def __get_powa_version(self, conn):
         cur = conn.cursor()
         cur.execute("""SELECT
             regexp_split_to_array(extversion, '\\.'),
@@ -70,14 +71,19 @@ class PowaThread (threading.Thread):
         res = cur.fetchone()
         cur.close()
 
-        if (not res):
+        return res
+
+    def __maybe_load_powa(self, conn):
+        ver = self.__get_powa_version(conn)
+
+        if (not ver):
             self.logger.error("PoWA extension not found")
             self.__disconnect_all()
             self.__stopping.set()
             return
-        elif (res[0][0] < '4'):
+        elif (int(ver[0][0]) < 4):
             self.logger.error("Incompatible PoWA version, found %s,"
-                              " requires at least 4.0.0" % res[1])
+                              " requires at least 4.0.0" % ver[1])
             self.__disconnect_all()
             self.__stopping.set()
             return
@@ -85,7 +91,7 @@ class PowaThread (threading.Thread):
         # make sure the GUC are present in case powa isn't in
         # shared_preload_librairies.  This is only required for powa
         # 4.0.x.
-        if (res[0][0] == '4' and res[0][1] == '0'):
+        if (int(ver[0][0]) == 4 and int(ver[0][1]) == 0):
             try:
                 cur = conn.cursor()
                 cur.execute("LOAD 'powa'")
@@ -96,9 +102,99 @@ class PowaThread (threading.Thread):
                 self.__disconnect_all()
                 self.__stopping.set()
 
-    def __check_powa(self):
+    def __save_versions(self):
         srvid = self.__config["srvid"]
 
+        ver = self.__get_powa_version(self.__repo_conn)
+
+        # Check and update PG and dependencies versions, for powa 4.1+
+        if (not ver or (int(ver[0][0]) == 4 and int(ver[0][1]) == 0)):
+            return
+
+        self.logger.debug("Checking postgres and dependencies versions")
+        if (self.__repo_conn is None):
+            self.__connect()
+
+        if (self.__remote_conn is None or self.__repo_conn is None):
+            self.logger.error("Could not check PoWA")
+            return
+
+        cur = self.__remote_conn.cursor()
+        repo_cur = self.__repo_conn.cursor()
+
+        cur.execute("""
+                SELECT setting
+                FROM pg_settings
+                WHERE name = 'server_version'
+                --WHERE name = 'server_version_num'
+                """)
+        server_num = cur.fetchone()
+        repo_cur.execute("""
+                SELECT version
+                FROM powa_servers
+                WHERE id = %(srvid)s
+                """, {'srvid': srvid})
+        repo_num = cur.fetchone()
+
+        if (repo_num is None or repo_num[0] != server_num[0]):
+            try:
+                repo_cur.execute("""
+                        UPDATE powa_servers
+                        SET version = %(version)s
+                        WHERE id = %(srvid)s
+                        """, {'srvid': srvid, 'version': server_num[0]})
+                self.__repo_conn.commit()
+            except Exception as e:
+                self.logger.warning("Could not save server version"
+                                    + ": %s" % (e))
+                self.__repo_conn.rollback()
+
+        repo_cur.execute("""
+            SELECT extname, version
+            FROM powa_extensions
+            WHERE srvid = %(srvid)s
+            """ % {'srvid': srvid})
+        exts = repo_cur.fetchall()
+
+        for ext in exts:
+            cur.execute("""
+            --WITH raw AS (
+            --   SELECT regexp_split_to_table(extversion, '\\.')::integer
+            --    AS val
+            --   FROM pg_extension
+            --   WHERE extname = %(extname)s
+            --)
+            --SELECT string_agg(ltrim(to_char(val, '00')), '')::integer
+            --FROM raw;
+            SELECT extversion
+            FROM pg_extension
+            WHERE extname = %(extname)s
+                    """, {'extname': ext[0]})
+            remote_ver = cur.fetchone()
+
+            if (not remote_ver):
+                self.logger.debug("No version found for extension "
+                                  + "%s on server %d" % (ext[0], srvid))
+                continue
+
+            if (ext[1] is None or ext[1] != remote_ver[0]):
+                try:
+                    repo_cur.execute("""
+                            UPDATE powa_extensions
+                            SET version = %(version)s
+                            WHERE srvid = %(srvid)s
+                            AND extname = %(extname)s
+                            """, {'version': remote_ver,  'srvid': srvid,
+                                  'extname': ext[0]})
+                    self.__repo_conn.commit()
+                except Exception as e:
+                    self.logger.warning("Could not save version for extension "
+                                        + "%s: %s" % (ext[0], e))
+                    self.__repo_conn.rollback()
+
+        self.__disconnect_repo()
+
+    def __check_powa(self):
         if (self.__remote_conn is None):
             self.__connect()
 
@@ -114,7 +210,8 @@ class PowaThread (threading.Thread):
         if (self.is_stopping()):
             return
 
-        self.__disconnect_repo()
+        # Check and update PG and dependencies versions if possible
+        self.__save_versions()
 
     def __reload(self):
         self.logger.info("Reloading configuration")
@@ -123,6 +220,9 @@ class PowaThread (threading.Thread):
             self.__pending_config = None
             self.__disconnect_all()
             self.__connect()
+        if (self.__update_dep_versions):
+            self.__update_dep_versions = False
+            self.__check_powa()
         self.__got_sighup.clear()
 
     def __report_error(self, msg, replace=True):
@@ -481,6 +581,12 @@ class PowaThread (threading.Thread):
     def ask_reload(self, new_config):
         self.logger.debug("Reload asked")
         self.__pending_config = new_config
+        self.__got_sighup.set()
+        self.__stop_sleep.set()
+
+    def ask_update_dep_versions(self):
+        self.logger.debug("Version dependencies reload asked")
+        self.__update_dep_versions = True
         self.__got_sighup.set()
         self.__stop_sleep.set()
 

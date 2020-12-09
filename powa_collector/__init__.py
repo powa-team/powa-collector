@@ -271,6 +271,10 @@ class PowaCollector():
             elif(self.workers[k].get_status() != "running"):
                 self.workers[k].ask_reload(cur)
 
+        # update stored versions
+        for k in config_new["servers"]:
+            self.workers[k].ask_update_dep_versions()
+
         self.config = config_new
         self.logger.info('Reload done')
 

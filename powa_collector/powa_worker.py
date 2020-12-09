@@ -60,53 +60,69 @@ class PowaThread (threading.Thread):
     def __repr__(self):
         return ("%s: %s" % (self.name, self.__config["dsn"]))
 
+    def __maybe_load_powa(self, conn):
+        cur = conn.cursor()
+        cur.execute("""SELECT
+            regexp_split_to_array(extversion, '\\.'),
+            extversion
+            FROM pg_catalog.pg_extension
+            WHERE extname = 'powa'""")
+        res = cur.fetchone()
+        cur.close()
+
+        if (not res):
+            self.logger.error("PoWA extension not found")
+            self.__disconnect_all()
+            self.__stopping.set()
+            return
+        elif (res[0][0] < '4'):
+            self.logger.error("Incompatible PoWA version, found %s,"
+                              " requires at least 4.0.0" % res[1])
+            self.__disconnect_all()
+            self.__stopping.set()
+            return
+
+        # make sure the GUC are present in case powa isn't in
+        # shared_preload_librairies.  This is only required for powa
+        # 4.0.x.
+        if (res[0][0] == '4' and res[0][1] == '0'):
+            try:
+                cur = conn.cursor()
+                cur.execute("LOAD 'powa'")
+                cur.close()
+                conn.commit()
+            except psycopg2.Error as e:
+                self.logger.error("Could not load extension powa:\n%s" % e)
+                self.__disconnect_all()
+                self.__stopping.set()
+
     def __check_powa(self):
+        srvid = self.__config["srvid"]
+
         if (self.__remote_conn is None):
             self.__connect()
 
         if (self.is_stopping()):
             return
 
+        # make sure the GUC are present in case powa isn't in
+        # shared_preload_librairies.  This is only required for powa
+        # 4.0.x.
         if (self.__remote_conn is not None):
-            cur = self.__remote_conn.cursor()
-            cur.execute("""SELECT
-                (split_part(extversion, '.', 1))::int,
-                extversion
-                FROM pg_catalog.pg_extension
-                WHERE extname = 'powa'""")
-            res = cur.fetchone()
-            cur.close()
+            self.__maybe_load_powa(self.__remote_conn)
 
-            if (not res):
-                self.logger.error("PoWA extension not found")
-                self.__disconnect_all()
-                self.__stopping.set()
-                return
-            elif (res[0] < 4):
-                self.logger.error("Incompatible PoWA version, found %s,"
-                                  " requires at least 4.0.0" % res[1])
-                self.__disconnect_all()
-                self.__stopping.set()
-                return
+        if (self.is_stopping()):
+            return
 
-            try:
-                # make sure the GUC are present in case powa isn't in
-                # shared_preload_librairies
-                cur = self.__remote_conn.cursor()
-                cur.execute("LOAD 'powa'")
-                cur.close()
-                self.__remote_conn.commit()
-            except psycopg2.Error as e:
-                self.logger.error("Could not load extension powa:\n%s" % e)
-                self.__disconnect_all()
-                self.__stopping.set()
+        self.__disconnect_repo()
 
     def __reload(self):
         self.logger.info("Reloading configuration")
-        self.__config = self.__pending_config
-        self.__pending_config = None
-        self.__disconnect_all()
-        self.__connect()
+        if (self.__pending_config is not None):
+            self.__config = self.__pending_config
+            self.__pending_config = None
+            self.__disconnect_all()
+            self.__connect()
         self.__got_sighup.clear()
 
     def __report_error(self, msg, replace=True):
@@ -139,15 +155,18 @@ class PowaThread (threading.Thread):
                 self.logger.debug("Connecting on repository...")
                 self.__repo_conn = psycopg2.connect(self.__repository['dsn'])
                 self.logger.debug("Connected.")
-                cur = self.__repo_conn.cursor()
                 # make sure the GUC are present in case powa isn't in
-                # shared_preload_librairies
-                cur.execute("LOAD 'powa'")
+                # shared_preload_librairies.  This is only required for powa
+                # 4.0.x.
+                self.__maybe_load_powa(self.__repo_conn)
+
+                cur = self.__repo_conn.cursor()
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
                     FROM pg_catalog.pg_settings
                     WHERE name = 'lock_timeout'
                     AND setting = '0'""")
+
                 cur.execute("SET application_name = %s",
                             ('PoWA collector - repo_conn for worker ' + self.name,))
                 cur.close()
@@ -158,10 +177,14 @@ class PowaThread (threading.Thread):
                 self.logger.debug("Connecting on remote database...")
                 self.__remote_conn = psycopg2.connect(**self.__config['dsn'])
                 self.logger.debug("Connected.")
-                cur = self.__remote_conn.cursor()
+
                 # make sure the GUC are present in case powa isn't in
-                # shared_preload_librairies
-                cur.execute("LOAD 'powa'")
+                # shared_preload_librairies.  This is only required for powa
+                # 4.0.x.
+                if (self.__remote_conn is not None):
+                    self.__maybe_load_powa(self.__remote_conn)
+
+                cur = self.__remote_conn.cursor()
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
                     FROM pg_catalog.pg_settings

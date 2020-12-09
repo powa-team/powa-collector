@@ -231,17 +231,25 @@ class PowaThread (threading.Thread):
                 error = msg
             else:
                 error = [msg]
+            srvid = self.__config["srvid"]
             cur = self.__repo_conn.cursor()
-            if (replace):
-                cur.execute("""UPDATE public.powa_snapshot_metas
-                    SET errors = %s
-                    WHERE srvid = %s
-                """, (error, self.__config["srvid"]))
-            else:
-                cur.execute("""UPDATE public.powa_snapshot_metas
-                    SET errors = pg_catalog.array_cat(errors, %s)
-                    WHERE srvid = %s
-                """, (error, self.__config["srvid"]))
+            cur.execute("SAVEPOINT metas")
+            try:
+                if (replace):
+                    cur.execute("""UPDATE public.powa_snapshot_metas
+                        SET errors = %s
+                        WHERE srvid = %s
+                    """, (error, srvid))
+                else:
+                    cur.execute("""UPDATE public.powa_snapshot_metas
+                        SET errors = pg_catalog.array_cat(errors, %s)
+                        WHERE srvid = %s
+                    """, (error, srvid))
+                cur.execute("RELEASE metas")
+            except psycopg2.Error as e:
+                err = "Could not report error for server %d:\n%s" % (srvid, e)
+                self.logger.warning(err)
+                cur.execute("ROLLBACK TO metas")
             self.__repo_conn.commit()
 
     def __connect(self):
@@ -540,11 +548,20 @@ class PowaThread (threading.Thread):
         # call powa_take_snapshot() for the given server
         self.logger.debug("Calling powa_take_snapshot(%d)..." % (srvid))
         sql = ("SELECT public.powa_take_snapshot(%(srvid)d)" % {'srvid': srvid})
-        ins.execute(sql)
-        val = ins.fetchone()[0]
-        if (val != 0):
-            self.logger.warning("Number of errors during snapshot: %d", val)
-            self.logger.warning("  Check the logs on the repository server")
+        try:
+            ins.execute("SAVEPOINT powa_take_snapshot")
+            ins.execute(sql)
+            val = ins.fetchone()[0]
+            if (val != 0):
+                self.logger.warning("Number of errors during snapshot: %d",
+                                    val)
+                self.logger.warning(" Check the logs on the repository server")
+            ins.execute("RELEASE powa_take_snapshot")
+        except psycopg2.Error as e:
+            err = "Error while taking snapshot for server %d:\n%s" % (srvid, e)
+            self.logger.warning(err)
+            errors.append(err)
+            ins.execute("ROLLBACK TO powa_take_snapshot")
 
         ins.execute("SET application_name = %s",
                     ('PoWA collector - repo_conn for worker ' + self.name,))

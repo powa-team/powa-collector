@@ -1,9 +1,21 @@
+1.1.0:
+  New features:
+    - Avoid explicit "LOAD 'powa'" with poWA 4.1.0, so a superuser isn't
+      required anymore when PoWA isn't in shared_preload_libraries (Julien
+      Rouhaud)
+    - Store postgres and handled extensions versions on repository server
+      (Julien Rouhaud)
+
+  Bug fixes:
+    - Handle errors that might happen during snapshot (Julien Rouhaud)
+
 1.0.0:
-  New feature:
+  New features:
     - Handle the new query_cleanup query that may be run after getting remote
       data.
   Bugfix:
     - Let workers quit immediately if they're asked to stop.
+
 0.0.3
   Bugfix:
     - Support standard_conforming_strings = off

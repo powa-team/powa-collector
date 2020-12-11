@@ -23,7 +23,7 @@ setuptools.setup(
     install_requires=requires,
     scripts=["powa-collector.py"],
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: PostgreSQL License",

@@ -498,16 +498,36 @@ class PowaThread (threading.Thread):
             # use savepoint, maybe the datasource is not setup on the remote
             # server
             data_src.execute("SAVEPOINT src")
+            snapshot_cursor = self.__remote_conn.cursor(name="powa_snapshot")
+            snapshot_cursor.execute(data_src_sql)
 
-            # XXX should we use os.pipe() or a temp file instead, to avoid too
-            # much memory consumption?
-            buf = StringIO()
+            ins.execute("SAVEPOINT data")
             try:
-                data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
+                first_line = snapshot_cursor.fetchone()
+                nb_cols = len(snapshot_cursor.description)
+                statement = "PREPARE powa_insertion AS INSERT INTO %s VALUES (%s)" % (get_tmp_name(query_source),
+                                                        ','.join(('$%s' % i for i in range(1, nb_cols + 1))))
+                ins.execute(statement)
+                execute_statement = "EXECUTE powa_insertion (%s)" % (",".join(["%s"] * nb_cols))
+                if first_line:
+                    ins.execute(execute_statement, tuple(first_line))
+                for line in snapshot_cursor:
+                    ins.execute(execute_statement, tuple(line))
             except psycopg2.Error as e:
-                err = "Error while calling public.%s:\n%s" % (query_source, e)
+                err = "Error while inserting data:\n%s" % e
+                self.logger.warning(err)
                 errors.append(err)
-                data_src.execute("ROLLBACK TO src")
+                self.logger.warning("Giving up for %s", function_name)
+                ins.execute("ROLLBACK TO data")
+            finally:
+                try:
+                    ins.execute('DEALLOCATE powa_insertion')
+                    snapshot_cursor.close()
+                except pscyopg2.Error as e:
+                    err = "Error while deallocating prepared statement"
+                    self.logger.warning(err)
+                    errors.append(err)
+                    self.logger.warning("Giving up for %s", function_name)
 
             # execute the cleanup query if provided
             if (cleanup_sql is not None):
@@ -520,24 +540,6 @@ class PowaThread (threading.Thread):
                     errors.append(err)
                     data_src.execute("ROLLBACK TO src")
 
-            if (self.is_stopping()):
-                return
-
-            # insert the data to the transient unlogged table
-            ins.execute("SAVEPOINT data")
-            buf.seek(0, SEEK_SET)
-            try:
-                ins.copy_expert("COPY %s FROM stdin" %
-                                get_tmp_name(query_source), buf)
-            except psycopg2.Error as e:
-                err = "Error while inserting data:\n%s" % e
-                self.logger.warning(err)
-                errors.append(err)
-                self.logger.warning("Giving up for %s", function_name)
-                ins.execute("ROLLBACK TO data")
-
-            buf.close()
-
         data_src.close()
 
         if (self.is_stopping()):
@@ -548,20 +550,11 @@ class PowaThread (threading.Thread):
         # call powa_take_snapshot() for the given server
         self.logger.debug("Calling powa_take_snapshot(%d)..." % (srvid))
         sql = ("SELECT public.powa_take_snapshot(%(srvid)d)" % {'srvid': srvid})
-        try:
-            ins.execute("SAVEPOINT powa_take_snapshot")
-            ins.execute(sql)
-            val = ins.fetchone()[0]
-            if (val != 0):
-                self.logger.warning("Number of errors during snapshot: %d",
-                                    val)
-                self.logger.warning(" Check the logs on the repository server")
-            ins.execute("RELEASE powa_take_snapshot")
-        except psycopg2.Error as e:
-            err = "Error while taking snapshot for server %d:\n%s" % (srvid, e)
-            self.logger.warning(err)
-            errors.append(err)
-            ins.execute("ROLLBACK TO powa_take_snapshot")
+        ins.execute(sql)
+        val = ins.fetchone()[0]
+        if (val != 0):
+            self.logger.warning("Number of errors during snapshot: %d", val)
+            self.logger.warning("  Check the logs on the repository server")
 
         ins.execute("SET application_name = %s",
                     ('PoWA collector - repo_conn for worker ' + self.name,))

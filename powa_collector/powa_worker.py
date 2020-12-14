@@ -503,6 +503,9 @@ class PowaThread (threading.Thread):
 
             ins.execute("SAVEPOINT data")
             try:
+                # Fetch the first line to get the number of columns.
+                # We need this to declare a prepared statement with the correct
+                # number of parameters.
                 first_line = snapshot_cursor.fetchone()
                 nb_cols = len(snapshot_cursor.description)
                 statement = "PREPARE powa_insertion AS INSERT INTO %s VALUES (%s)" % (get_tmp_name(query_source),
@@ -511,6 +514,8 @@ class PowaThread (threading.Thread):
                 execute_statement = "EXECUTE powa_insertion (%s)" % (",".join(["%s"] * nb_cols))
                 if first_line:
                     ins.execute(execute_statement, tuple(first_line))
+                # Ok, the first line has been processed, now iterate on the
+                # rest using the prepared statement
                 for line in snapshot_cursor:
                     ins.execute(execute_statement, tuple(line))
             except psycopg2.Error as e:

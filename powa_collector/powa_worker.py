@@ -400,10 +400,10 @@ class PowaThread (threading.Thread):
                     self.logger.error("Error during snapshot: %s" % e)
                     if (self.__repo_conn is None
                             or self.__repo_conn.closed > 0):
-                        self.__repo_conn = None
+                        self.__disconnect_repo()
                     if (self.__remote_conn is None
                             or self.__remote_conn.closed > 0):
-                        self.__remote_conn = None
+                        self.__disconnect_repo()
 
                 self.last_time = calendar.timegm(time.gmtime())
             time_to_sleep = self.__config["frequency"] - (cur_time -

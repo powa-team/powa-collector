@@ -1,3 +1,9 @@
+1.1.1:
+  Bugfix:
+    -  Make sure that repo connection is available when getting repo powa
+       version (Julien Rouhaud, thanks to Adrien Nayrat for the report and
+       testing the patch)
+
 1.1.0:
   New features:
     - Avoid explicit "LOAD 'powa'" with poWA 4.1.0, so a superuser isn't

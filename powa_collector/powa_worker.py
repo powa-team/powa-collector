@@ -105,6 +105,9 @@ class PowaThread (threading.Thread):
     def __save_versions(self):
         srvid = self.__config["srvid"]
 
+        if (self.__repo_conn is None):
+            self.__connect()
+
         ver = self.__get_powa_version(self.__repo_conn)
 
         # Check and update PG and dependencies versions, for powa 4.1+
@@ -112,8 +115,6 @@ class PowaThread (threading.Thread):
             return
 
         self.logger.debug("Checking postgres and dependencies versions")
-        if (self.__repo_conn is None):
-            self.__connect()
 
         if (self.__remote_conn is None or self.__repo_conn is None):
             self.logger.error("Could not check PoWA")

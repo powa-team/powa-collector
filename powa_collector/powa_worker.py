@@ -159,14 +159,6 @@ class PowaThread (threading.Thread):
 
         for ext in exts:
             cur.execute("""
-            --WITH raw AS (
-            --   SELECT regexp_split_to_table(extversion, '\\.')::integer
-            --    AS val
-            --   FROM pg_extension
-            --   WHERE extname = %(extname)s
-            --)
-            --SELECT string_agg(ltrim(to_char(val, '00')), '')::integer
-            --FROM raw;
             SELECT extversion
             FROM pg_extension
             WHERE extname = %(extname)s

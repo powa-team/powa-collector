@@ -371,17 +371,17 @@ class PowaThread (threading.Thread):
         # lot of new servers were added
         if (not self.is_stopping()
             and self.last_time is not None
-            and ((calendar.timegm(time.gmtime()) -
+            and ((time.time() -
                  self.last_time) > self.__config["frequency"])):
             random.seed()
             r = random.randint(0, self.__config["frequency"] - 1)
             self.logger.debug("Spreading snapshot: setting last snapshot to"
                               + " %d seconds ago (frequency: %d)" %
                               (r, self.__config["frequency"]))
-            self.last_time = calendar.timegm(time.gmtime()) - r
+            self.last_time = time.time() - r
 
         while (not self.is_stopping()):
-            start_time = calendar.timegm(time.gmtime())
+            start_time = time.time()
             if (self.__got_sighup.isSet()):
                 self.__reload()
 
@@ -398,7 +398,7 @@ class PowaThread (threading.Thread):
                             or self.__remote_conn.closed > 0):
                         self.__remote_conn = None
 
-                self.last_time = calendar.timegm(time.gmtime())
+                self.last_time = time.time()
             time_to_sleep = self.__config["frequency"] - (self.last_time -
                                                           start_time)
 

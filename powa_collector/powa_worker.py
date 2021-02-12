@@ -381,12 +381,12 @@ class PowaThread (threading.Thread):
             self.last_time = calendar.timegm(time.gmtime()) - r
 
         while (not self.is_stopping()):
-            cur_time = calendar.timegm(time.gmtime())
+            start_time = calendar.timegm(time.gmtime())
             if (self.__got_sighup.isSet()):
                 self.__reload()
 
             if ((self.last_time is None) or
-                    (cur_time - self.last_time) >= self.__config["frequency"]):
+                    (start_time - self.last_time) >= self.__config["frequency"]):
                 try:
                     self.__take_snapshot()
                 except psycopg2.Error as e:
@@ -400,7 +400,7 @@ class PowaThread (threading.Thread):
 
                 self.last_time = calendar.timegm(time.gmtime())
             time_to_sleep = self.__config["frequency"] - (self.last_time -
-                                                          cur_time)
+                                                          start_time)
 
             # sleep until the scheduled processing time, or if the main thread
             # asked us to perform an action or if we were asked to stop.

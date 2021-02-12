@@ -399,8 +399,8 @@ class PowaThread (threading.Thread):
                         self.__remote_conn = None
 
                 self.last_time = calendar.timegm(time.gmtime())
-            time_to_sleep = self.__config["frequency"] - (cur_time -
-                                                          self.last_time)
+            time_to_sleep = self.__config["frequency"] - (self.last_time -
+                                                          cur_time)
 
             # sleep until the scheduled processing time, or if the main thread
             # asked us to perform an action or if we were asked to stop.

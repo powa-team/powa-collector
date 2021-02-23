@@ -391,12 +391,8 @@ class PowaThread (threading.Thread):
                     self.__take_snapshot()
                 except psycopg2.Error as e:
                     self.logger.error("Error during snapshot: %s" % e)
-                    if (self.__repo_conn is None
-                            or self.__repo_conn.closed > 0):
-                        self.__repo_conn = None
-                    if (self.__remote_conn is None
-                            or self.__remote_conn.closed > 0):
-                        self.__remote_conn = None
+                    # It will reconnect automatically at next snapshot
+                    self.__disconnect_all()
 
                 self.last_time = time.time()
             time_to_sleep = self.__config["frequency"] - (self.last_time -

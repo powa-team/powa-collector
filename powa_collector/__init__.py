@@ -42,11 +42,16 @@ __VERSION_NUM__ = [int(part) for part in __VERSION__.split('.')]
 
 
 def getVersion():
+    """Return powa_collector's version as a string"""
     return __VERSION__
 
 
 class PowaCollector():
+    """Main powa collector's class. This manages all collection tasks
+    Declare all attributes here, we don't want dynamic attributes
+    """
     def __init__(self):
+        """Instance creator. Sets logging, signal handlers, and basic structure"""
         self.workers = {}
         self.logger = logging.getLogger("powa-collector")
         self.stopping = False
@@ -65,6 +70,11 @@ class PowaCollector():
         signal.signal(signal.SIGTERM, self.sighandler)
 
     def connect(self, options):
+        """Connect to the repository
+        Used for communication with powa-web and users of the communication repository
+        Persistent
+        Threads will use distinct connections
+        """
         try:
             self.logger.debug("Connecting on repository...")
             self.__repo_conn = psycopg2.connect(options["repository"]['dsn'])
@@ -89,6 +99,9 @@ class PowaCollector():
         return True
 
     def process_notification(self):
+        """Process PostgreSQL NOTIFY messages.
+        These come mainly from the UI, to ask us to reload our configuration, or to display the workers status
+        """
         if (not self.__repo_conn):
             return
 
@@ -117,7 +130,7 @@ class PowaCollector():
             elif (cmd == "WORKERS_STATUS"):
                 # ignore the message if no channel was received
                 if (channel != '-'):
-                    # did the caller requested a single server only?  We ignore
+                    # did the caller request a single server only?  We ignore
                     # anything but the first parameter passed
                     if (len(notif) > 0 and notif[0].isdigit()):
                         w_id = int(notif[0])
@@ -152,6 +165,9 @@ class PowaCollector():
         cur.close()
 
     def main(self):
+        """Start the active loop.
+        Connect or reconnect to the repository and starts threads to manage the monitored servers
+        """
         raw_options = parse_options()
         self.logger.info("Starting powa-collector...")
 
@@ -188,15 +204,19 @@ class PowaCollector():
             self.stop_all_workers()
 
     def register_worker(self, name, repository, config):
-            self.workers[name] = PowaThread(name, repository, config)
-            # self.workers[s].daemon = True
-            self.workers[name].start()
+        """Add a worker thread to a server"""
+        self.workers[name] = PowaThread(name, repository, config)
+        self.workers[name].start()
 
     def stop_all_workers(self):
+        """Ask all worker threads to stop
+        This is asynchronous, no guarantee
+        """
         for k, worker in self.workers.items():
             worker.ask_to_stop()
 
     def sighandler(self, signum, frame):
+        """Manage signal handlers: reload conf on SIGHUB, shutdown on SIGTERM"""
         if (signum == signal.SIGHUP):
             self.logger.debug("SIGHUP caught")
             self.reload_conf()
@@ -208,6 +228,7 @@ class PowaCollector():
             self.logger.error("Unhandled signal %d" % signum)
 
     def list_workers(self, wanted_srvid=None, tostdout=True):
+        """List all workers and their status"""
         res = {}
 
         if (tostdout):
@@ -238,6 +259,12 @@ class PowaCollector():
         return res
 
     def reload_conf(self):
+        """Reload configuration:
+        - reparse the configuration
+        - stop and start workers if necessary
+        - for those whose configuration has changed, ask them to reload
+        - update dep versions: recompute powa version's and its dependencies
+        """
         self.list_workers()
 
         self.logger.info('Reloading...')
@@ -249,7 +276,7 @@ class PowaCollector():
                 continue
 
             if (worker.is_stopping()):
-                self.logger.warning("Oops")
+                self.logger.warning("The worker %s is stoping" % k)
 
             if (k not in config_new["servers"]):
                 self.logger.info("%s has been removed, stopping it..." % k)
@@ -280,6 +307,7 @@ class PowaCollector():
 
 
 def conf_are_equal(conf1, conf2):
+    """Compare two configurations, returns True if equal"""
     for k in conf1.keys():
         if (k not in conf2):
             return False

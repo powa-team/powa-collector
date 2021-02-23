@@ -28,7 +28,11 @@ else:
 
 
 class PowaThread (threading.Thread):
+    """A Powa collector thread. Derives from threading.Thread
+    Manages a monitored database
+    """
     def __init__(self, name, repository, config):
+        """Instance creator. Starts threading and logger"""
         threading.Thread.__init__(self)
         # we use this event to sleep on the worker main loop.  It'll be set by
         # the main thread through one of the public functions, when a SIGHUP
@@ -62,6 +66,7 @@ class PowaThread (threading.Thread):
         return ("%s: %s" % (self.name, self.__config["dsn"]))
 
     def __get_powa_version(self, conn):
+        """Get powa's extension version"""
         cur = conn.cursor()
         cur.execute("""SELECT
             regexp_split_to_array(extversion, '\\.'),
@@ -74,6 +79,10 @@ class PowaThread (threading.Thread):
         return res
 
     def __maybe_load_powa(self, conn):
+        """Loads Powa if it's not already and it's needed.
+        Only supports 4.0+ extension, and this version can be loaded on the fly
+        """
+        
         ver = self.__get_powa_version(conn)
 
         if (not ver):
@@ -103,6 +112,7 @@ class PowaThread (threading.Thread):
                 self.__stopping.set()
 
     def __save_versions(self):
+        """Save the versions we collect on the remote server in the repository"""
         srvid = self.__config["srvid"]
 
         if (self.__repo_conn is None):
@@ -188,6 +198,7 @@ class PowaThread (threading.Thread):
         self.__disconnect_repo()
 
     def __check_powa(self):
+        """Check that Powa is ready on the remote database"""
         if (self.__remote_conn is None):
             self.__connect()
 
@@ -207,6 +218,10 @@ class PowaThread (threading.Thread):
         self.__save_versions()
 
     def __reload(self):
+        """Reload configuration
+        Disconnect from everything, read new configuration, reconnect, update dependencies, check Powa is still available
+        The new session could be totally different
+        """
         self.logger.info("Reloading configuration")
         if (self.__pending_config is not None):
             self.__config = self.__pending_config
@@ -219,6 +234,8 @@ class PowaThread (threading.Thread):
         self.__got_sighup.clear()
 
     def __report_error(self, msg, replace=True):
+        """Store errors in the database
+        replace means we overwrite current stored errors in the database for this server. Else we append"""
         if (self.__repo_conn is not None):
             if (type(msg).__name__ == 'list'):
                 error = msg
@@ -246,6 +263,8 @@ class PowaThread (threading.Thread):
             self.__repo_conn.commit()
 
     def __connect(self):
+        """Connect to a remote server
+        Override lock_timeout, application name"""
         if ('dsn' not in self.__repository or 'dsn' not in self.__config):
             self.logger.error("Missing connection info")
             self.__stopping.set()
@@ -307,6 +326,7 @@ class PowaThread (threading.Thread):
                 self.__last_repo_conn_errored = True
 
     def __disconnect_all(self):
+        """Disconnect from remote server and repository server"""
         if (self.__remote_conn is not None):
             self.logger.info("Disconnecting from remote server")
             self.__remote_conn.close()
@@ -317,17 +337,22 @@ class PowaThread (threading.Thread):
         self.__connected.clear()
 
     def __disconnect_repo(self):
+        """Disconnect from repo"""
         if (self.__repo_conn is not None):
             self.__repo_conn.close()
             self.__repo_conn = None
 
     def __disconnect_all_and_exit(self):
+        """Disconnect all and stop the thread"""
         # this is the exit point
         self.__disconnect_all()
         self.logger.info("stopped")
         self.__stopping.clear()
 
     def __worker_main(self):
+        """The thread's main loop
+        Get latest snapshot on the database and determine how long to sleep before next snapshot
+        Add a random seed to avoid doing all databases simultaneously"""
         self.last_time = None
         self.__check_powa()
 
@@ -412,8 +437,7 @@ class PowaThread (threading.Thread):
         self.__disconnect_all_and_exit()
 
     def __take_snapshot(self):
-        """
-        Main part of the worker thread.  This function will call all the
+        """Main part of the worker thread.  This function will call all the
         query_src functions enabled for the target server, and insert all the
         retrieved rows on the repository server, in unlogged tables, and
         finally call powa_take_snapshot() on the repository server to finish
@@ -569,34 +593,41 @@ class PowaThread (threading.Thread):
         self.__disconnect_repo()
 
     def is_stopping(self):
+        """Is the thread currently stopping"""
         return self.__stopping.isSet()
 
     def get_config(self):
+        """Returns the thread's config"""
         return self.__config
 
     def ask_to_stop(self):
+        """Ask the thread to stop"""
         self.__stopping.set()
         self.logger.info("Asked to stop...")
         self.__stop_sleep.set()
 
     def run(self):
+        """Start the main loop of the thread"""
         if (not self.is_stopping()):
             self.logger.info("Starting worker")
             self.__worker_main()
 
     def ask_reload(self, new_config):
+        """Ask the thread to reload"""
         self.logger.debug("Reload asked")
         self.__pending_config = new_config
         self.__got_sighup.set()
         self.__stop_sleep.set()
 
     def ask_update_dep_versions(self):
+        """Ask the thread to recompute its dependencies"""
         self.logger.debug("Version dependencies reload asked")
         self.__update_dep_versions = True
         self.__got_sighup.set()
         self.__stop_sleep.set()
 
     def get_status(self):
+        """Get the status: ok, not connected to repo, or not connected to remote"""
         if (self.__repo_conn is None and self.__last_repo_conn_errored):
             return "no connection to repository server"
         if (self.__remote_conn is None):

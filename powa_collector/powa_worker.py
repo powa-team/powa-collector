@@ -79,8 +79,8 @@ class PowaThread (threading.Thread):
         return res
 
     def __maybe_load_powa(self, conn):
-        """Loads Powa if it's not already and it's possible.
-        We need to have a 4.0+ extension, and we can load it on the fly
+        """Loads Powa if it's not already and it's needed.
+        Only supports 4.0+ extension, and this version can be loaded on the fly
         """
         
         ver = self.__get_powa_version(conn)
@@ -112,7 +112,7 @@ class PowaThread (threading.Thread):
                 self.__stopping.set()
 
     def __save_versions(self):
-        """Save the versions we collect on the remote database in the repository"""
+        """Save the versions we collect on the remote server in the repository"""
         srvid = self.__config["srvid"]
 
         if (self.__repo_conn is None):
@@ -218,8 +218,10 @@ class PowaThread (threading.Thread):
         self.__save_versions()
 
     def __reload(self):
-        """Reload configurationi
-        Disconnect from everything, reconnect, update dependencies, check Powa is still available"""
+        """Reload configuration
+        Disconnect from everything, read new configuration, reconnect, update dependencies, check Powa is still available
+        The new session could be totally different
+        """
         self.logger.info("Reloading configuration")
         if (self.__pending_config is not None):
             self.__config = self.__pending_config
@@ -324,7 +326,7 @@ class PowaThread (threading.Thread):
                 self.__last_repo_conn_errored = True
 
     def __disconnect_all(self):
-        """Disconnect from server and repo"""
+        """Disconnect from remote server and repository server"""
         if (self.__remote_conn is not None):
             self.logger.info("Disconnecting from remote server")
             self.__remote_conn.close()

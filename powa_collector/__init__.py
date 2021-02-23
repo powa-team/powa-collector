@@ -47,7 +47,9 @@ def getVersion():
 
 
 class PowaCollector():
-    """Main powa collector's class. This manages all collection tasks"""
+    """Main powa collector's class. This manages all collection tasks
+    Declare all attributes here, we don't want dynamic attributes
+    """
     def __init__(self):
         """Instance creator. Sets logging, signal handlers, and basic structure"""
         self.workers = {}
@@ -68,7 +70,11 @@ class PowaCollector():
         signal.signal(signal.SIGTERM, self.sighandler)
 
     def connect(self, options):
-        """Connect to the repository"""
+        """Connect to the repository
+        Used for communication with powa-web and users of the communication repository
+        Persistent
+        Threads will use distinct connections
+        """
         try:
             self.logger.debug("Connecting on repository...")
             self.__repo_conn = psycopg2.connect(options["repository"]['dsn'])
@@ -160,7 +166,7 @@ class PowaCollector():
 
     def main(self):
         """Start the active loop.
-        Connect or reconnect to the repository and starts threads to manage the monitored databases
+        Connect or reconnect to the repository and starts threads to manage the monitored servers
         """
         raw_options = parse_options()
         self.logger.info("Starting powa-collector...")
@@ -198,12 +204,14 @@ class PowaCollector():
             self.stop_all_workers()
 
     def register_worker(self, name, repository, config):
-        """Add a worker thread to a database"""
+        """Add a worker thread to a server"""
         self.workers[name] = PowaThread(name, repository, config)
         self.workers[name].start()
 
     def stop_all_workers(self):
-        """Ask all worker threads to stop"""
+        """Ask all worker threads to stop
+        This is asynchronous, no guarantee
+        """
         for k, worker in self.workers.items():
             worker.ask_to_stop()
 

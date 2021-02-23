@@ -29,7 +29,7 @@ else:
 
 class PowaThread (threading.Thread):
     """A Powa collector thread. Derives from threading.Thread
-    Manages a monitored database
+    Manages a monitored remote server.
     """
     def __init__(self, name, repository, config):
         """Instance creator. Starts threading and logger"""
@@ -198,7 +198,7 @@ class PowaThread (threading.Thread):
         self.__disconnect_repo()
 
     def __check_powa(self):
-        """Check that Powa is ready on the remote database"""
+        """Check that Powa is ready on the remote server."""
         if (self.__remote_conn is None):
             self.__connect()
 
@@ -219,8 +219,9 @@ class PowaThread (threading.Thread):
 
     def __reload(self):
         """Reload configuration
-        Disconnect from everything, read new configuration, reconnect, update dependencies, check Powa is still available
-        The new session could be totally different
+        Disconnect from everything, read new configuration, reconnect, update
+        dependencies, check Powa is still available The new session could be
+        totally different
         """
         self.logger.info("Reloading configuration")
         if (self.__pending_config is not None):
@@ -234,8 +235,9 @@ class PowaThread (threading.Thread):
         self.__got_sighup.clear()
 
     def __report_error(self, msg, replace=True):
-        """Store errors in the database
-        replace means we overwrite current stored errors in the database for this server. Else we append"""
+        """Store errors in the repository database.
+        replace means we overwrite current stored errors in the database for
+        this server. Else we append"""
         if (self.__repo_conn is not None):
             if (type(msg).__name__ == 'list'):
                 error = msg
@@ -351,8 +353,9 @@ class PowaThread (threading.Thread):
 
     def __worker_main(self):
         """The thread's main loop
-        Get latest snapshot on the database and determine how long to sleep before next snapshot
-        Add a random seed to avoid doing all databases simultaneously"""
+        Get latest snapshot timestamp for the remote server and determine how
+        long to sleep before performing the next snapshot.
+        Add a random seed to avoid doing all remote servers simultaneously"""
         self.last_time = None
         self.__check_powa()
 
@@ -443,7 +446,8 @@ class PowaThread (threading.Thread):
         finally call powa_take_snapshot() on the repository server to finish
         the distant snapshot.  All is done in one transaction, so that there
         won't be concurrency issues if a snapshot takes longer than the
-        specified interval.
+        specified interval.  This also ensure that all rows will see the same
+        snapshot timestamp.
         """
         srvid = self.__config["srvid"]
 

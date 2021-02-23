@@ -7,8 +7,7 @@ from powa_collector import PowaCollector, getVersion
 
 
 def usage(rc):
-    """
-    Show tool usage
+    """Show tool usage
     """
     print("""Usage:
   %s [ -? | --help ] [ -V | --version ]
@@ -24,8 +23,7 @@ more information about this tool.
 
 
 def main():
-    """
-    Simple wrapper around PowaCollector
+    """Instantiates and starts a PowaCollector object
     """
     try:
         opts, args = getopt.getopt(sys.argv[1:], "?V", ["help", "version"])

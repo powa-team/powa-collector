@@ -178,7 +178,15 @@ class PowaCollector():
         if (not self.connect(raw_options)):
             exit(1)
 
-        self.config = add_servers_config(self.__repo_conn, raw_options)
+        try:
+            self.config = add_servers_config(self.__repo_conn, raw_options)
+        except psycopg2.Error as e:
+            self.__repo_conn.close()
+            self.__repo_conn = None
+            self.logger.error("Error retrieving the list of remote servers:"
+                              "\n%s",
+                              e)
+            exit(1)
 
         for k, conf in self.config["servers"].items():
             self.register_worker(k, self.config["repository"], conf)

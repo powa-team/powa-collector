@@ -12,7 +12,6 @@ threads will use 2 connections:
 """
 import threading
 import time
-import calendar
 import psycopg2
 from psycopg2.extras import DictCursor
 import logging

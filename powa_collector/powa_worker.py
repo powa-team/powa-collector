@@ -10,6 +10,7 @@ threads will use 2 connections:
       perform the snapshot.  This connection is created and dropped at each
       checkpoint
 """
+from decimal import Decimal
 import threading
 import time
 import psycopg2
@@ -390,6 +391,10 @@ class PowaThread (threading.Thread):
                 if (cur is not None):
                     cur.close()
                 self.__repo_conn.rollback()
+
+        # Normalize unknkown last snapshot time
+        if (self.last_time == Decimal('-Infinity')):
+            self.last_time = None
 
         # if this worker was stopped longer than the configured frequency,
         # assign last snapshot time to a random time between now and now minus

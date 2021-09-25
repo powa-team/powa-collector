@@ -81,6 +81,8 @@ class PowaCollector():
             self.__repo_conn.autocommit = True
             self.logger.debug("Connected.")
             cur = self.__repo_conn.cursor()
+
+            # Setup a 2s lock_timeout if there's no inherited lock_timeout
             cur.execute("""SELECT
                 pg_catalog.set_config(name, '2000', false)
                 FROM pg_catalog.pg_settings
@@ -235,6 +237,9 @@ class PowaCollector():
 
         if (tostdout):
             self.logger.info('List of workers:')
+
+        if (tostdout and len(self.workers.items()) == 0):
+            self.logger.info('No worker')
 
         for k, worker in self.workers.items():
             # self.logger.info(" %s%s" % (k, "" if (worker.isAlive()) else

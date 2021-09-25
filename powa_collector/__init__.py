@@ -91,8 +91,32 @@ class PowaCollector():
             cur.execute("SET application_name = %s",
                         ('PoWA collector - main thread'
                          + ' (' + __VERSION__ + ')', ))
+
+            # Listen on our dedicated powa_collector notify channel
             cur.execute("LISTEN powa_collector")
+
+            # Check if powa-archivist is installed on the repository server
+            cur.execute("""SELECT
+                    regexp_split_to_array(extversion, '\\.'),
+                    extversion
+                FROM pg_catalog.pg_extension
+                WHERE extname = 'powa'""")
+            ver = cur.fetchone()
             cur.close()
+
+            if ver is None:
+                self.__repo_conn.close()
+                self.__repo_conn = None
+                self.logger.error("PoWA extension not found on repository "
+                                  "server")
+                return False
+            elif (int(ver[0][0]) < 4):
+                self.__repo_conn.close()
+                self.__repo_conn = None
+                self.logger.error("Incompatible PoWA version, found %s,"
+                                  " requires at least 4.0.0" % ver[1])
+                return False
+
         except psycopg2.Error as e:
             self.__repo_conn = None
             self.logger.error("Error connecting:\n%s", e)

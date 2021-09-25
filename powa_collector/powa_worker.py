@@ -82,7 +82,7 @@ class PowaThread (threading.Thread):
         """Loads Powa if it's not already and it's needed.
         Only supports 4.0+ extension, and this version can be loaded on the fly
         """
-        
+
         ver = self.__get_powa_version(conn)
 
         if (not ver):

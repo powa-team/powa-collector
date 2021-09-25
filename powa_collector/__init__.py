@@ -100,7 +100,8 @@ class PowaCollector():
 
     def process_notification(self):
         """Process PostgreSQL NOTIFY messages.
-        These come mainly from the UI, to ask us to reload our configuration, or to display the workers status
+        These come mainly from the UI, to ask us to reload our configuration,
+        or to display the workers status
         """
         if (not self.__repo_conn):
             return
@@ -166,7 +167,8 @@ class PowaCollector():
 
     def main(self):
         """Start the active loop.
-        Connect or reconnect to the repository and starts threads to manage the monitored servers
+        Connect or reconnect to the repository and starts threads to manage the
+        monitored servers
         """
         raw_options = parse_options()
         self.logger.info("Starting powa-collector...")

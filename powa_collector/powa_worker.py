@@ -282,6 +282,10 @@ class PowaThread (threading.Thread):
                 # 4.0.x.
                 self.__maybe_load_powa(self.__repo_conn)
 
+                # Return now if __maybe_load_powa asked to stop
+                if (self.is_stopping()):
+                    return
+
                 cur = self.__repo_conn.cursor()
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
@@ -305,6 +309,10 @@ class PowaThread (threading.Thread):
                 # 4.0.x.
                 if (self.__remote_conn is not None):
                     self.__maybe_load_powa(self.__remote_conn)
+
+                # Return now if __maybe_load_powa asked to stop
+                if (self.is_stopping()):
+                    return
 
                 cur = self.__remote_conn.cursor()
                 cur.execute("""SELECT

@@ -1,0 +1,5 @@
+Depends:
+ postgresql-powa,
+ @,
+Tests: collector
+Restrictions: allow-stderr

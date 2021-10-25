@@ -1,0 +1,11 @@
+--- a/setup.py
++++ b/setup.py
+@@ -21,7 +21,7 @@ setuptools.setup(
+     url="https://powa.readthedocs.io/",
+     packages=setuptools.find_packages(),
+     install_requires=requires,
+-    scripts=["powa-collector.py"],
++    scripts=["powa-collector"],
+     classifiers=[
+         "Development Status :: 5 - Production/Stable",
+         "Programming Language :: Python :: 2",

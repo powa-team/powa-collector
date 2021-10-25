@@ -1,0 +1,8 @@
+--- a/powa-collector.py
++++ b/powa-collector.py
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python
++#!/usr/bin/python3
+ 
+ import getopt
+ import os

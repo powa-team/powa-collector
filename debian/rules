@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+override_dh_auto_configure:
+	ln -s powa-collector.py powa-collector
+	dh_auto_configure --buildsystem=pybuild
+
+override_dh_installman:
+	help2man --no-info \
+		--name 'PoWA Collector daemon for remote snapshots' \
+		./powa-collector.py > powa-collector.1
+	dh_installman
+
+%:
+	dh $@ --with=python3 --buildsystem=pybuild

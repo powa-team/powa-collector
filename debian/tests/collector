@@ -1,0 +1,33 @@
+#!/bin/sh
+
+set -eux
+
+: "figure out which PG version to use (we depend on 'postgresql-powa' which might have pulled in any version)"
+for version in /usr/share/postgresql/*/extension/powa.control; do
+  version=${version#/usr/share/postgresql/}
+  version=${version%/extension/powa.control}
+done
+
+pg_virtualenv -v $version -o shared_preload_libraries=pg_stat_statements <<'EOF'
+  set -eux
+  createdb powa
+  export PGDATABASE=powa
+  psql -Xc 'CREATE EXTENSION powa CASCADE'
+
+  : register server
+  psql -Xxc "SELECT powa_register_server(hostname:='$PGHOST', port:='$PGPORT', username:='$PGUSER', password:='$PGPASSWORD')"
+  psql -Xxc 'SELECT * FROM powa_servers WHERE id <> 0'
+  psql -Xxc 'SELECT * FROM powa_snapshot_metas WHERE srvid <> 0'
+
+  : start collector
+  echo "{ \"repository\": { \"dsn\": \"postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/powa\" }, \"debug\": false }" > powa-collector.conf
+  powa-collector &
+  sleep 10
+  kill $!
+
+  : check if snapshot was taken
+  psql -Xxc 'SELECT * FROM powa_servers WHERE id <> 0'
+  psql -Xxc 'SELECT * FROM powa_snapshot_metas WHERE srvid <> 0'
+  [ "$(psql -XAtc "SELECT snapts > now() - '20s'::interval FROM powa_snapshot_metas WHERE srvid <> 0")" = "t" ]
+EOF
+

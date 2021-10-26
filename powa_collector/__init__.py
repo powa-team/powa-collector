@@ -274,7 +274,7 @@ class PowaCollector():
             self.logger.info('No worker')
 
         for k, worker in self.workers.items():
-            # self.logger.info(" %s%s" % (k, "" if (worker.isAlive()) else
+            # self.logger.info(" %s%s" % (k, "" if (worker.is_alive()) else
             #                             " (stopped)"))
             worker_srvid = self.config["servers"][k]["srvid"]
 
@@ -285,7 +285,7 @@ class PowaCollector():
             status = "Unknown"
             if (worker.is_stopping()):
                 status = "stopping"
-            elif (worker.isAlive()):
+            elif (worker.is_alive()):
                 status = worker.get_status()
             else:
                 status = "stopped"
@@ -311,7 +311,7 @@ class PowaCollector():
 
         # check for removed servers
         for k, worker in self.workers.items():
-            if (worker.isAlive()):
+            if (worker.is_alive()):
                 continue
 
             if (worker.is_stopping()):
@@ -323,7 +323,7 @@ class PowaCollector():
 
         # check for added servers
         for k in config_new["servers"]:
-            if (k not in self.workers or not self.workers[k].isAlive()):
+            if (k not in self.workers or not self.workers[k].is_alive()):
                 self.logger.info("%s has been added, registering it..." % k)
                 self.register_worker(k, config_new["repository"],
                                      config_new["servers"][k])

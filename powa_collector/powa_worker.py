@@ -160,6 +160,7 @@ class PowaThread (threading.Thread):
                                     + ": %s" % (e))
                 self.__repo_conn.rollback()
 
+        hypo_ver = None
         repo_cur.execute("""
             SELECT extname, version
             FROM powa_extensions
@@ -168,6 +169,9 @@ class PowaThread (threading.Thread):
         exts = repo_cur.fetchall()
 
         for ext in exts:
+            if (ext[0] == 'hypopg'):
+                hypo_ver = ext[1]
+
             cur.execute("""
             SELECT extversion
             FROM pg_extension
@@ -187,13 +191,56 @@ class PowaThread (threading.Thread):
                             SET version = %(version)s
                             WHERE srvid = %(srvid)s
                             AND extname = %(extname)s
-                            """, {'version': remote_ver,  'srvid': srvid,
+                            """, {'version': remote_ver, 'srvid': srvid,
                                   'extname': ext[0]})
                     self.__repo_conn.commit()
                 except Exception as e:
                     self.logger.warning("Could not save version for extension "
                                         + "%s: %s" % (ext[0], e))
                     self.__repo_conn.rollback()
+
+        # Special handling of hypopg, which isn't required to be installed in
+        # the powa dedicated database.
+        cur.execute("""
+            SELECT default_version
+            FROM pg_available_extensions
+            WHERE name = 'hypopg'
+        """)
+        remote_ver = cur.fetchone()
+
+        if (remote_ver is None):
+            try:
+                repo_cur.execute("""
+                        DELETE FROM powa_extensions
+                        WHERE srvid = %(srvid)s
+                        AND extname = 'hypopg'
+                        """, {'srvid': srvid, 'hypo_ver': remote_ver})
+                self.__repo_conn.commit()
+            except Exception as e:
+                self.logger.warning("Could not save version for extension "
+                                    + "hypopg: %s" % (e))
+                self.__repo_conn.rollback()
+        elif (remote_ver != hypo_ver):
+            try:
+                if (hypo_ver is None):
+                    repo_cur.execute("""
+                            INSERT INTO powa_extensions
+                                (srvid, extname, version)
+                            VALUES (%(srvid)s, 'hypopg', %(hypo_ver)s)
+                            """, {'srvid': srvid, 'hypo_ver': remote_ver})
+                else:
+                    repo_cur.execute("""
+                            UPDATE powa_extensions
+                            SET version = %(hypo_ver)s
+                            WHERE srvid = %(srvid)s
+                            AND extname = 'hypopg'
+                            """, {'srvid': srvid, 'hypo_ver': remote_ver})
+
+                self.__repo_conn.commit()
+            except Exception as e:
+                self.logger.warning("Could not save version for extension "
+                                    + "hypopg: %s" % (e))
+                self.__repo_conn.rollback()
 
         self.__disconnect_repo()
 

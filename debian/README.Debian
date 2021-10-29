@@ -1,0 +1,61 @@
+powa-collector for Debian
+=========================
+
+powa-collector is configured to run as the `powa` system user. The instructions
+below create a `powa` PostgreSQL user and a `powa` database for the PoWA
+repository on the collector node. On the remote nodes, a `powa` PostgreSQL user
+is created, and the powa extension is installed in the `postgres` database.
+
+Setup steps on the collector node
+---------------------------------
+
+Install packages:
+
+  apt install postgresql-powa # postgresql-14-powa to be explicit about PG version
+  apt install powa-collector
+  apt install powa-web
+
+Enable pg_stat_statements (omit for remote-only monitoring):
+
+  pg_conftool set shared_preload_libraries pg_stat_statements
+  systemctl restart postgresql
+
+Create repository database and user:
+
+sudo -u postgres psql <<EOF
+  create user powa;
+  grant pg_read_all_stats to powa;
+  create database powa owner powa;
+  \c powa
+  create extension powa cascade;
+  grant select, insert, update, delete on all tables in schema public to powa;
+  grant usage on all sequences in schema public to powa;
+EOF
+
+Setup steps on remote nodes
+---------------------------
+
+Install packages:
+
+  apt install postgresql-powa # postgresql-14-powa to be explicit about PG version
+
+Enable pg_stat_statements:
+
+  pg_conftool set shared_preload_libraries pg_stat_statements
+  systemctl restart postgresql
+
+Create monitoring extension in postgres database:
+
+sudo -u postgres psql <<EOF
+  create user powa password '<powapass>';
+  grant pg_read_all_stats to powa;
+  create extension powa cascade;
+EOF
+
+Refer to the PostgreSQL documentation for configuring the server to allow
+remote connections (pg_hba.conf, listen_addresses).
+
+Register node in repository database:
+
+sudo -u postgres psql -d powa -c \
+  "select powa_register_server(hostname := '<remotehost>', password := '<powapass>', dbname := 'postgres')"

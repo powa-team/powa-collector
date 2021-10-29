@@ -2,7 +2,7 @@
 Description=PoWA Collector daemon for remote snapshots
 
 [Service]
-User=postgres
+User=powa
 ExecStart=/usr/bin/powa-collector
 ExecReload=kill -HUP $MAINPID
 

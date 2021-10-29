@@ -20,11 +20,13 @@ Vcs-Git: https://github.com/powa-team/powa-collector.git -b debian
 Package: powa-collector
 Architecture: all
 Depends:
+ adduser,
  ${misc:Depends},
  ${python3:Depends},
  ${shlibs:Depends},
-Recommends:
- postgresql-common,
+Suggests:
+ postgresql-powa,
+ powa-web,
 Description: PoWA collector daemon for remote snapshots
  This repository contains the powa-collector tool, a simple multi-threaded
  python program that performs the snapshots for all the remote servers

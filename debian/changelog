@@ -1,3 +1,9 @@
+powa-collector (1.1.1-2) unstable; urgency=medium
+
+  * Source-only upload.
+
+ -- Christoph Berg <myon@debian.org>  Tue, 30 Nov 2021 09:33:24 +0100
+
 powa-collector (1.1.1-1) unstable; urgency=medium
 
   * Initial release.

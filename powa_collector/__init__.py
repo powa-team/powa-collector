@@ -37,7 +37,7 @@ import logging
 import json
 import signal
 
-__VERSION__ = '1.1.1'
+__VERSION__ = '1.2.0'
 __VERSION_NUM__ = [int(part) for part in __VERSION__.split('.')]
 
 

@@ -10,9 +10,9 @@ threads will use 2 connections:
       perform the snapshot.  This connection is created and dropped at each
       checkpoint
 """
+from decimal import Decimal
 import threading
 import time
-import calendar
 import psycopg2
 from psycopg2.extras import DictCursor
 import logging
@@ -28,7 +28,11 @@ else:
 
 
 class PowaThread (threading.Thread):
+    """A Powa collector thread. Derives from threading.Thread
+    Manages a monitored remote server.
+    """
     def __init__(self, name, repository, config):
+        """Instance creator. Starts threading and logger"""
         threading.Thread.__init__(self)
         # we use this event to sleep on the worker main loop.  It'll be set by
         # the main thread through one of the public functions, when a SIGHUP
@@ -62,6 +66,7 @@ class PowaThread (threading.Thread):
         return ("%s: %s" % (self.name, self.__config["dsn"]))
 
     def __get_powa_version(self, conn):
+        """Get powa's extension version"""
         cur = conn.cursor()
         cur.execute("""SELECT
             regexp_split_to_array(extversion, '\\.'),
@@ -74,6 +79,10 @@ class PowaThread (threading.Thread):
         return res
 
     def __maybe_load_powa(self, conn):
+        """Loads Powa if it's not already and it's needed.
+        Only supports 4.0+ extension, and this version can be loaded on the fly
+        """
+
         ver = self.__get_powa_version(conn)
 
         if (not ver):
@@ -103,6 +112,7 @@ class PowaThread (threading.Thread):
                 self.__stopping.set()
 
     def __save_versions(self):
+        """Save the versions we collect on the remote server in the repository"""
         srvid = self.__config["srvid"]
 
         if (self.__repo_conn is None):
@@ -150,6 +160,7 @@ class PowaThread (threading.Thread):
                                     + ": %s" % (e))
                 self.__repo_conn.rollback()
 
+        hypo_ver = None
         repo_cur.execute("""
             SELECT extname, version
             FROM powa_extensions
@@ -158,15 +169,10 @@ class PowaThread (threading.Thread):
         exts = repo_cur.fetchall()
 
         for ext in exts:
+            if (ext[0] == 'hypopg'):
+                hypo_ver = ext[1]
+
             cur.execute("""
-            --WITH raw AS (
-            --   SELECT regexp_split_to_table(extversion, '\\.')::integer
-            --    AS val
-            --   FROM pg_extension
-            --   WHERE extname = %(extname)s
-            --)
-            --SELECT string_agg(ltrim(to_char(val, '00')), '')::integer
-            --FROM raw;
             SELECT extversion
             FROM pg_extension
             WHERE extname = %(extname)s
@@ -185,7 +191,7 @@ class PowaThread (threading.Thread):
                             SET version = %(version)s
                             WHERE srvid = %(srvid)s
                             AND extname = %(extname)s
-                            """, {'version': remote_ver,  'srvid': srvid,
+                            """, {'version': remote_ver, 'srvid': srvid,
                                   'extname': ext[0]})
                     self.__repo_conn.commit()
                 except Exception as e:
@@ -193,9 +199,53 @@ class PowaThread (threading.Thread):
                                         + "%s: %s" % (ext[0], e))
                     self.__repo_conn.rollback()
 
+        # Special handling of hypopg, which isn't required to be installed in
+        # the powa dedicated database.
+        cur.execute("""
+            SELECT default_version
+            FROM pg_available_extensions
+            WHERE name = 'hypopg'
+        """)
+        remote_ver = cur.fetchone()
+
+        if (remote_ver is None):
+            try:
+                repo_cur.execute("""
+                        DELETE FROM powa_extensions
+                        WHERE srvid = %(srvid)s
+                        AND extname = 'hypopg'
+                        """, {'srvid': srvid, 'hypo_ver': remote_ver})
+                self.__repo_conn.commit()
+            except Exception as e:
+                self.logger.warning("Could not save version for extension "
+                                    + "hypopg: %s" % (e))
+                self.__repo_conn.rollback()
+        elif (remote_ver != hypo_ver):
+            try:
+                if (hypo_ver is None):
+                    repo_cur.execute("""
+                            INSERT INTO powa_extensions
+                                (srvid, extname, version)
+                            VALUES (%(srvid)s, 'hypopg', %(hypo_ver)s)
+                            """, {'srvid': srvid, 'hypo_ver': remote_ver})
+                else:
+                    repo_cur.execute("""
+                            UPDATE powa_extensions
+                            SET version = %(hypo_ver)s
+                            WHERE srvid = %(srvid)s
+                            AND extname = 'hypopg'
+                            """, {'srvid': srvid, 'hypo_ver': remote_ver})
+
+                self.__repo_conn.commit()
+            except Exception as e:
+                self.logger.warning("Could not save version for extension "
+                                    + "hypopg: %s" % (e))
+                self.__repo_conn.rollback()
+
         self.__disconnect_repo()
 
     def __check_powa(self):
+        """Check that Powa is ready on the remote server."""
         if (self.__remote_conn is None):
             self.__connect()
 
@@ -215,6 +265,11 @@ class PowaThread (threading.Thread):
         self.__save_versions()
 
     def __reload(self):
+        """Reload configuration
+        Disconnect from everything, read new configuration, reconnect, update
+        dependencies, check Powa is still available The new session could be
+        totally different
+        """
         self.logger.info("Reloading configuration")
         if (self.__pending_config is not None):
             self.__config = self.__pending_config
@@ -227,6 +282,9 @@ class PowaThread (threading.Thread):
         self.__got_sighup.clear()
 
     def __report_error(self, msg, replace=True):
+        """Store errors in the repository database.
+        replace means we overwrite current stored errors in the database for
+        this server. Else we append"""
         if (self.__repo_conn is not None):
             if (type(msg).__name__ == 'list'):
                 error = msg
@@ -254,6 +312,8 @@ class PowaThread (threading.Thread):
             self.__repo_conn.commit()
 
     def __connect(self):
+        """Connect to a remote server
+        Override lock_timeout, application name"""
         if ('dsn' not in self.__repository or 'dsn' not in self.__config):
             self.logger.error("Missing connection info")
             self.__stopping.set()
@@ -268,6 +328,10 @@ class PowaThread (threading.Thread):
                 # shared_preload_librairies.  This is only required for powa
                 # 4.0.x.
                 self.__maybe_load_powa(self.__repo_conn)
+
+                # Return now if __maybe_load_powa asked to stop
+                if (self.is_stopping()):
+                    return
 
                 cur = self.__repo_conn.cursor()
                 cur.execute("""SELECT
@@ -293,6 +357,10 @@ class PowaThread (threading.Thread):
                 if (self.__remote_conn is not None):
                     self.__maybe_load_powa(self.__remote_conn)
 
+                # Return now if __maybe_load_powa asked to stop
+                if (self.is_stopping()):
+                    return
+
                 cur = self.__remote_conn.cursor()
                 cur.execute("""SELECT
                     pg_catalog.set_config(name, '2000', false)
@@ -315,6 +383,7 @@ class PowaThread (threading.Thread):
                 self.__last_repo_conn_errored = True
 
     def __disconnect_all(self):
+        """Disconnect from remote server and repository server"""
         if (self.__remote_conn is not None):
             self.logger.info("Disconnecting from remote server")
             self.__remote_conn.close()
@@ -325,17 +394,23 @@ class PowaThread (threading.Thread):
         self.__connected.clear()
 
     def __disconnect_repo(self):
+        """Disconnect from repo"""
         if (self.__repo_conn is not None):
             self.__repo_conn.close()
             self.__repo_conn = None
 
     def __disconnect_all_and_exit(self):
+        """Disconnect all and stop the thread"""
         # this is the exit point
         self.__disconnect_all()
         self.logger.info("stopped")
         self.__stopping.clear()
 
     def __worker_main(self):
+        """The thread's main loop
+        Get latest snapshot timestamp for the remote server and determine how
+        long to sleep before performing the next snapshot.
+        Add a random seed to avoid doing all remote servers simultaneously"""
         self.last_time = None
         self.__check_powa()
 
@@ -372,6 +447,10 @@ class PowaThread (threading.Thread):
                     cur.close()
                 self.__repo_conn.rollback()
 
+        # Normalize unknkown last snapshot time
+        if (self.last_time == Decimal('-Infinity')):
+            self.last_time = None
+
         # if this worker was stopped longer than the configured frequency,
         # assign last snapshot time to a random time between now and now minus
         # duration.  This will help to spread the snapshots and avoid activity
@@ -379,36 +458,32 @@ class PowaThread (threading.Thread):
         # lot of new servers were added
         if (not self.is_stopping()
             and self.last_time is not None
-            and ((calendar.timegm(time.gmtime()) -
+            and ((time.time() -
                  self.last_time) > self.__config["frequency"])):
             random.seed()
             r = random.randint(0, self.__config["frequency"] - 1)
             self.logger.debug("Spreading snapshot: setting last snapshot to"
                               + " %d seconds ago (frequency: %d)" %
                               (r, self.__config["frequency"]))
-            self.last_time = calendar.timegm(time.gmtime()) - r
+            self.last_time = time.time() - r
 
         while (not self.is_stopping()):
-            cur_time = calendar.timegm(time.gmtime())
+            start_time = time.time()
             if (self.__got_sighup.isSet()):
                 self.__reload()
 
             if ((self.last_time is None) or
-                    (cur_time - self.last_time) >= self.__config["frequency"]):
+                    (start_time - self.last_time) >= self.__config["frequency"]):
                 try:
                     self.__take_snapshot()
                 except psycopg2.Error as e:
                     self.logger.error("Error during snapshot: %s" % e)
-                    if (self.__repo_conn is None
-                            or self.__repo_conn.closed > 0):
-                        self.__repo_conn = None
-                    if (self.__remote_conn is None
-                            or self.__remote_conn.closed > 0):
-                        self.__remote_conn = None
+                    # It will reconnect automatically at next snapshot
+                    self.__disconnect_all()
 
-                self.last_time = calendar.timegm(time.gmtime())
-            time_to_sleep = self.__config["frequency"] - (cur_time -
-                                                          self.last_time)
+                self.last_time = time.time()
+            time_to_sleep = self.__config["frequency"] - (self.last_time -
+                                                          start_time)
 
             # sleep until the scheduled processing time, or if the main thread
             # asked us to perform an action or if we were asked to stop.
@@ -424,14 +499,14 @@ class PowaThread (threading.Thread):
         self.__disconnect_all_and_exit()
 
     def __take_snapshot(self):
-        """
-        Main part of the worker thread.  This function will call all the
+        """Main part of the worker thread.  This function will call all the
         query_src functions enabled for the target server, and insert all the
         retrieved rows on the repository server, in unlogged tables, and
         finally call powa_take_snapshot() on the repository server to finish
         the distant snapshot.  All is done in one transaction, so that there
         won't be concurrency issues if a snapshot takes longer than the
-        specified interval.
+        specified interval.  This also ensure that all rows will see the same
+        snapshot timestamp.
         """
         srvid = self.__config["srvid"]
 
@@ -581,34 +656,41 @@ class PowaThread (threading.Thread):
         self.__disconnect_repo()
 
     def is_stopping(self):
+        """Is the thread currently stopping"""
         return self.__stopping.isSet()
 
     def get_config(self):
+        """Returns the thread's config"""
         return self.__config
 
     def ask_to_stop(self):
+        """Ask the thread to stop"""
         self.__stopping.set()
         self.logger.info("Asked to stop...")
         self.__stop_sleep.set()
 
     def run(self):
+        """Start the main loop of the thread"""
         if (not self.is_stopping()):
             self.logger.info("Starting worker")
             self.__worker_main()
 
     def ask_reload(self, new_config):
+        """Ask the thread to reload"""
         self.logger.debug("Reload asked")
         self.__pending_config = new_config
         self.__got_sighup.set()
         self.__stop_sleep.set()
 
     def ask_update_dep_versions(self):
+        """Ask the thread to recompute its dependencies"""
         self.logger.debug("Version dependencies reload asked")
         self.__update_dep_versions = True
         self.__got_sighup.set()
         self.__stop_sleep.set()
 
     def get_status(self):
+        """Get the status: ok, not connected to repo, or not connected to remote"""
         if (self.__repo_conn is None and self.__last_repo_conn_errored):
             return "no connection to repository server"
         if (self.__remote_conn is None):

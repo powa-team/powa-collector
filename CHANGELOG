@@ -1,3 +1,26 @@
+1.2.0:
+  New Features:
+    - Automatically detect hypopg on remort servers (Julien Rouhaud, thanks to
+      github user MikhailSaynukov for the request)
+  Bugfixes:
+    - Fix sleep time calculation (Marc Cousin)
+    - Properly detect -Infinity as an unknown last snapshot (Julien Rouhaud)
+    - Properly handle error happening when retrieving the list of remote
+      servers (Julien Rouhaud)
+    - Properly detect stop condition after checking if PoWA must be loaded
+      (Julien Rouhaud)
+    - Close all thread's connections in case of uncatched error during snapshot
+      (Marc Cousin)
+  Misc:
+    - Immediately exit the worker thread if PoWA isn't present or can't be
+      loaded (Julien Rouhaud)
+    - Improve server list stdout logging when no server is found (Julien
+      Rouhaud)
+    - Do PoWA extension sanity checks for the dedicated repo connection too
+      (Julien Rouhaud)
+    - Fix compatibility with python 3.9 (Julien Rouhaud, per report from
+      Christoph Berg)
+
 1.1.1:
   Bugfix:
     -  Make sure that repo connection is available when getting repo powa

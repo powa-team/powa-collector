@@ -25,8 +25,7 @@ CONF_LOCATIONS = [
 
 
 def get_full_config(conn):
-    """
-    Return the full configuration, consisting of the information from the local
+    """Return the full configuration, consisting of the information from the local
     configuration file and the remote servers stored on the repository
     database.
     """
@@ -34,8 +33,7 @@ def get_full_config(conn):
 
 
 def add_servers_config(conn, config):
-    """
-    Add the activated remote servers stored on the repository database to a
+    """Add the activated remote servers stored on the repository database to a
     given configuration JSON.
     """
     if ("servers" not in config):
@@ -72,8 +70,7 @@ def add_servers_config(conn, config):
 
 
 def parse_options():
-    """
-    Look for the configuration file in all supported location, parse it and
+    """Look for the configuration file in all supported location, parse it and
     return the resulting JSON, also adding the implicit values if needed.
     """
     options = None
@@ -107,8 +104,7 @@ def parse_options():
 
 
 def parse_file(filepath):
-    """
-    Read a configuration file and return the JSON
+    """Read a configuration file and return the JSON
     """
     try:
         return json.load(open(filepath))

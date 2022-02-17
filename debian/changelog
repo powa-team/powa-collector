@@ -1,3 +1,9 @@
+powa-collector (1.2.0-1) unstable; urgency=medium
+
+  * New upstream version.
+
+ -- Christoph Berg <myon@debian.org>  Thu, 17 Feb 2022 16:47:16 +0100
+
 powa-collector (1.1.1-2) unstable; urgency=medium
 
   * Source-only upload.

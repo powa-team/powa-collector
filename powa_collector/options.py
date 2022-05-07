@@ -110,7 +110,7 @@ def parse_file(filepath):
         return json.load(open(filepath))
     except IOError:
         return None
-    except Error as e:
+    except Exception as e:
         print("Error parsing config file %s:" % filepath)
         print("\t%s" % e)
         sys.exit(1)

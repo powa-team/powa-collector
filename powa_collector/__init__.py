@@ -180,7 +180,7 @@ class PowaCollector():
                 # XXX we could implement multi-part answer, but if we ever
                 # reach that point, we should consider moving to a table
                 if (len(payload.encode('utf-8')) >= 8000):
-                    payload = ("%(cmd)s %(status)s %(data)" %
+                    payload = ("%(cmd)s %(status)s %(data)s" %
                                {'cmd': cmd,
                                 'status': "KO",
                                 'data': "ANSWER TOO LONG"})

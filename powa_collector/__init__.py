@@ -31,6 +31,7 @@ See the README.md file for the full protocol documentation.
 from powa_collector.options import (parse_options, get_full_config,
                                     add_servers_config)
 from powa_collector.powa_worker import PowaThread
+from powa_collector.customconn import get_connection
 import psycopg2
 import select
 import logging
@@ -77,7 +78,9 @@ class PowaCollector():
         """
         try:
             self.logger.debug("Connecting on repository...")
-            self.__repo_conn = psycopg2.connect(options["repository"]['dsn'])
+            self.__repo_conn = get_connection(self.logger,
+                                              options["debug"],
+                                              options["repository"]['dsn'])
             self.__repo_conn.autocommit = True
             self.logger.debug("Connected.")
             cur = self.__repo_conn.cursor()
@@ -153,7 +156,7 @@ class PowaCollector():
 
             if (cmd == "RELOAD"):
                 self.reload_conf()
-                data = 'OK'
+                data = '{OK}'
             elif (cmd == "WORKERS_STATUS"):
                 # ignore the message if no channel was received
                 if (channel != '-'):
@@ -171,7 +174,12 @@ class PowaCollector():
 
             # if there was a response channel, reply back
             if (channel != '-'):
-                payload = ("%(cmd)s %(status)s %(data)s" %
+                # We need an extra {} around the data as the custom connection
+                # will call format() on the overall string, which would fail
+                # with a json dump as-is.  We therefore also need to make sure
+                # that any non-empty data looks like a json.
+
+                payload = ("%(cmd)s %(status)s {%(data)s}" %
                            {'cmd': cmd, 'status': status, 'data': data})
 
                 # with default configuration, postgres only accept up to 8k
@@ -183,7 +191,7 @@ class PowaCollector():
                     payload = ("%(cmd)s %(status)s %(data)s" %
                                {'cmd': cmd,
                                 'status': "KO",
-                                'data': "ANSWER TOO LONG"})
+                                'data': "{ANSWER TOO LONG}"})
 
                 cur.execute("""NOTIFY "%(channel)s", '%(payload)s'""" %
                             {'channel': channel,
@@ -213,7 +221,8 @@ class PowaCollector():
             exit(1)
 
         for k, conf in self.config["servers"].items():
-            self.register_worker(k, self.config["repository"], conf)
+            self.register_worker(k, self.config["repository"], conf,
+                                 raw_options['debug'])
 
         self.list_workers()
 
@@ -239,9 +248,9 @@ class PowaCollector():
             self.logger.info("Stopping all workers and exiting...")
             self.stop_all_workers()
 
-    def register_worker(self, name, repository, config):
+    def register_worker(self, name, repository, config, debug):
         """Add a worker thread to a server"""
-        self.workers[name] = PowaThread(name, repository, config)
+        self.workers[name] = PowaThread(name, repository, config, debug)
         self.workers[name].start()
 
     def stop_all_workers(self):
@@ -326,7 +335,8 @@ class PowaCollector():
             if (k not in self.workers or not self.workers[k].is_alive()):
                 self.logger.info("%s has been added, registering it..." % k)
                 self.register_worker(k, config_new["repository"],
-                                     config_new["servers"][k])
+                                     config_new["servers"][k],
+                                     config_new['debug'])
 
         # check for updated configuration
         for k in config_new["servers"]:

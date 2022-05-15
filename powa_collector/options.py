@@ -43,7 +43,7 @@ def add_servers_config(conn, config):
     cur.execute("""
                 SELECT id, hostname, port, username, password, dbname,
                     frequency
-                FROM public.powa_servers s
+                FROM {powa}.powa_servers s
                 WHERE s.id > 0
                 AND s.frequency > 0
                 ORDER BY id

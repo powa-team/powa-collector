@@ -19,8 +19,9 @@ import logging
 from os import SEEK_SET
 import random
 import sys
+from powa_collector.customconn import get_connection
 from powa_collector.snapshot import (get_snapshot_functions, get_src_query,
-                                     get_tmp_name)
+                                     get_tmp_name, get_nsp)
 if (sys.version_info < (3, 0)):
     from StringIO import StringIO
 else:
@@ -31,7 +32,7 @@ class PowaThread (threading.Thread):
     """A Powa collector thread. Derives from threading.Thread
     Manages a monitored remote server.
     """
-    def __init__(self, name, repository, config):
+    def __init__(self, name, repository, config, debug):
         """Instance creator. Starts threading and logger"""
         threading.Thread.__init__(self)
         # we use this event to sleep on the worker main loop.  It'll be set by
@@ -56,6 +57,7 @@ class PowaThread (threading.Thread):
         self.__last_repo_conn_errored = False
         self.logger = logging.getLogger("powa-collector")
         self.last_time = None
+        self.__debug = debug
 
         extra = {'threadname': self.name}
         self.logger = logging.LoggerAdapter(self.logger, extra)
@@ -147,7 +149,7 @@ class PowaThread (threading.Thread):
         server_num = cur.fetchone()
         repo_cur.execute("""
                 SELECT version
-                FROM powa_servers
+                FROM {powa}.powa_servers
                 WHERE id = %(srvid)s
                 """, {'srvid': srvid})
         repo_num = cur.fetchone()
@@ -155,7 +157,7 @@ class PowaThread (threading.Thread):
         if (repo_num is None or repo_num[0] != server_num[0]):
             try:
                 repo_cur.execute("""
-                        UPDATE powa_servers
+                        UPDATE {powa}.powa_servers
                         SET version = %(version)s
                         WHERE id = %(srvid)s
                         """, {'srvid': srvid, 'version': server_num[0]})
@@ -168,7 +170,7 @@ class PowaThread (threading.Thread):
         hypo_ver = None
         repo_cur.execute("""
             SELECT extname, version
-            FROM powa_extensions
+            FROM {powa}.powa_extensions
             WHERE srvid = %(srvid)s
             """ % {'srvid': srvid})
         exts = repo_cur.fetchall()
@@ -192,7 +194,7 @@ class PowaThread (threading.Thread):
             if (ext[1] is None or ext[1] != remote_ver[0]):
                 try:
                     repo_cur.execute("""
-                            UPDATE powa_extensions
+                            UPDATE {powa}.powa_extensions
                             SET version = %(version)s
                             WHERE srvid = %(srvid)s
                             AND extname = %(extname)s
@@ -216,7 +218,7 @@ class PowaThread (threading.Thread):
         if (remote_ver is None):
             try:
                 repo_cur.execute("""
-                        DELETE FROM powa_extensions
+                        DELETE FROM {powa}.powa_extensions
                         WHERE srvid = %(srvid)s
                         AND extname = 'hypopg'
                         """, {'srvid': srvid, 'hypo_ver': remote_ver})
@@ -229,13 +231,13 @@ class PowaThread (threading.Thread):
             try:
                 if (hypo_ver is None):
                     repo_cur.execute("""
-                            INSERT INTO powa_extensions
+                            INSERT INTO {powa}.powa_extensions
                                 (srvid, extname, version)
                             VALUES (%(srvid)s, 'hypopg', %(hypo_ver)s)
                             """, {'srvid': srvid, 'hypo_ver': remote_ver})
                 else:
                     repo_cur.execute("""
-                            UPDATE powa_extensions
+                            UPDATE {powa}.powa_extensions
                             SET version = %(hypo_ver)s
                             WHERE srvid = %(srvid)s
                             AND extname = 'hypopg'
@@ -300,12 +302,12 @@ class PowaThread (threading.Thread):
             cur.execute("SAVEPOINT metas")
             try:
                 if (replace):
-                    cur.execute("""UPDATE public.powa_snapshot_metas
+                    cur.execute("""UPDATE {powa}.powa_snapshot_metas
                         SET errors = %s
                         WHERE srvid = %s
                     """, (error, srvid))
                 else:
-                    cur.execute("""UPDATE public.powa_snapshot_metas
+                    cur.execute("""UPDATE {powa}.powa_snapshot_metas
                         SET errors = pg_catalog.array_cat(errors, %s)
                         WHERE srvid = %s
                     """, (error, srvid))
@@ -327,7 +329,9 @@ class PowaThread (threading.Thread):
         try:
             if (self.__repo_conn is None):
                 self.logger.debug("Connecting on repository...")
-                self.__repo_conn = psycopg2.connect(self.__repository['dsn'])
+                self.__repo_conn = get_connection(self.logger,
+                                                  self.__debug,
+                                                  self.__repository['dsn'])
                 self.logger.debug("Connected.")
                 # make sure the GUC are present in case powa isn't in
                 # shared_preload_librairies.  This is only required for powa
@@ -353,7 +357,9 @@ class PowaThread (threading.Thread):
 
             if (self.__remote_conn is None):
                 self.logger.debug("Connecting on remote database...")
-                self.__remote_conn = psycopg2.connect(**self.__config['dsn'])
+                self.__remote_conn = get_connection(self.logger,
+                                                    self.__debug,
+                                                    **self.__config['dsn'])
                 self.logger.debug("Connected.")
 
                 # make sure the GUC are present in case powa isn't in
@@ -431,7 +437,7 @@ class PowaThread (threading.Thread):
             try:
                 cur = self.__repo_conn.cursor()
                 cur.execute("""SELECT EXTRACT(EPOCH FROM snapts)
-                    FROM public.powa_snapshot_metas
+                    FROM {powa}.powa_snapshot_metas
                     WHERE srvid = %d
                     """ % self.__config["srvid"])
                 row = cur.fetchone()
@@ -535,11 +541,13 @@ class PowaThread (threading.Thread):
             self.logger.error("No connection to repository server, snapshot skipped")
             return
 
+        ver = self.__get_powa_version(self.__remote_conn)
+
         # get the list of snapshot functions, and their associated query_src
         cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
         cur.execute("SAVEPOINT snapshots")
         try:
-            cur.execute(get_snapshot_functions(), (srvid,))
+            cur.execute(get_snapshot_functions(ver), (srvid,))
             snapfuncs = cur.fetchall()
             cur.execute("RELEASE snapshots")
         except psycopg2.Error as e:
@@ -570,6 +578,7 @@ class PowaThread (threading.Thread):
             query_source = snapfunc["query_source"]
             cleanup_sql = snapfunc["query_cleanup"]
             function_name = snapfunc["function_name"]
+            external = snapfunc["external"]
 
             self.logger.debug("Working on module %s", module_name)
 
@@ -579,9 +588,11 @@ class PowaThread (threading.Thread):
                 self.logger.warning("Not query_source for %s" % function_name)
                 continue
 
-            # execute the query_src functions to get local data (srvid 0)
-            self.logger.debug("Calling public.%s(0)..." % query_source)
-            data_src_sql = get_src_query(query_source, srvid)
+            # execute the query_src functions on the remote server to get its
+            # local data (srvid 0)
+            r_nsp = get_nsp(self.__remote_conn, external, module_name)
+            self.logger.debug("Calling %s.%s(0)..." % (r_nsp, query_source))
+            data_src_sql = get_src_query(r_nsp, query_source, srvid)
 
             # use savepoint, maybe the datasource is not setup on the remote
             # server
@@ -593,7 +604,8 @@ class PowaThread (threading.Thread):
             try:
                 data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
             except psycopg2.Error as e:
-                err = "Error while calling public.%s:\n%s" % (query_source, e)
+                err = "Error while calling %s.%s:\n%s" % (r_nsp, query_source,
+                                                          e)
                 errors.append(err)
                 data_src.execute("ROLLBACK TO src")
 
@@ -615,8 +627,10 @@ class PowaThread (threading.Thread):
             ins.execute("SAVEPOINT data")
             buf.seek(0, SEEK_SET)
             try:
+                # For data import the schema is now on the repository server
+                tbl_nsp = get_nsp(self.__repo_conn, external, module_name)
                 ins.copy_expert("COPY %s FROM stdin" %
-                                get_tmp_name(query_source), buf)
+                                get_tmp_name(tbl_nsp, query_source), buf)
             except psycopg2.Error as e:
                 err = "Error while inserting data:\n%s" % e
                 self.logger.warning(err)
@@ -635,7 +649,7 @@ class PowaThread (threading.Thread):
 
         # call powa_take_snapshot() for the given server
         self.logger.debug("Calling powa_take_snapshot(%d)..." % (srvid))
-        sql = ("SELECT public.powa_take_snapshot(%(srvid)d)" % {'srvid': srvid})
+        sql = ("SELECT {powa}.powa_take_snapshot(%(srvid)d)" % {'srvid': srvid})
         try:
             ins.execute("SAVEPOINT powa_take_snapshot")
             ins.execute(sql)
@@ -650,6 +664,11 @@ class PowaThread (threading.Thread):
             self.logger.warning(err)
             errors.append(err)
             ins.execute("ROLLBACK TO powa_take_snapshot")
+            # Manually reset existing errors as powa_take_snapshot, which
+            # should be responsible for it, failed
+            ins.execute("""UPDATE {powa}.powa_snapshot_metas
+                SET errors = NULL
+                WHERE srvid = %(srvid)s""", {'srvid': srvid})
 
         ins.execute("SET application_name = %s",
                     ('PoWA collector - repo_conn for worker ' + self.name,))

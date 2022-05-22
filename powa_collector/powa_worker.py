@@ -10,6 +10,7 @@ threads will use 2 connections:
       perform the snapshot.  This connection is created and dropped at each
       checkpoint
 """
+from collections import defaultdict
 from decimal import Decimal
 import threading
 import time
@@ -20,8 +21,9 @@ from os import SEEK_SET
 import random
 import sys
 from powa_collector.customconn import get_connection
-from powa_collector.snapshot import (get_snapshot_functions, get_src_query,
-                                     get_tmp_name, get_nsp)
+from powa_collector.snapshot import (get_global_snapfuncs_sql, get_src_query,
+                                     get_db_snapfuncs_sql, get_global_tmp_name,
+                                     get_nsp)
 if (sys.version_info < (3, 0)):
     from StringIO import StringIO
 else:
@@ -520,38 +522,17 @@ class PowaThread (threading.Thread):
         # main loop is over, disconnect and quit
         self.__disconnect_all_and_exit()
 
-    def __take_snapshot(self):
-        """Main part of the worker thread.  This function will call all the
-        query_src functions enabled for the target server, and insert all the
-        retrieved rows on the repository server, in unlogged tables, and
-        finally call powa_take_snapshot() on the repository server to finish
-        the distant snapshot.  All is done in one transaction, so that there
-        won't be concurrency issues if a snapshot takes longer than the
-        specified interval.  This also ensure that all rows will see the same
-        snapshot timestamp.
+    def __get_global_snapfuncs(self, powa_ver):
+        """
+        Get the list of global snapshot functions (in the dedicated powa
+        database), and their associated query_src
         """
         srvid = self.__config["srvid"]
 
-        if (self.is_stopping()):
-            return
-
-        self.__connect()
-
-        if (self.__remote_conn is None):
-            self.logger.error("No connection to remote server, snapshot skipped")
-            return
-
-        if (self.__repo_conn is None):
-            self.logger.error("No connection to repository server, snapshot skipped")
-            return
-
-        ver = self.__get_powa_version(self.__remote_conn)
-
-        # get the list of snapshot functions, and their associated query_src
         cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
         cur.execute("SAVEPOINT snapshots")
         try:
-            cur.execute(get_snapshot_functions(ver), (srvid,))
+            cur.execute(get_global_snapfuncs_sql(powa_ver), (srvid,))
             snapfuncs = cur.fetchall()
             cur.execute("RELEASE snapshots")
         except psycopg2.Error as e:
@@ -560,7 +541,7 @@ class PowaThread (threading.Thread):
             self.logger.error(err)
             self.logger.error("Exiting worker for server %s..." % srvid)
             self.__stopping.set()
-            return
+            return None
         cur.close()
 
         if (not snapfuncs):
@@ -568,15 +549,29 @@ class PowaThread (threading.Thread):
             self.logger.debug("Committing transaction")
             self.__repo_conn.commit()
             self.__disconnect_repo()
-            return
+            return None
 
-        ins = self.__repo_conn.cursor()
+        return snapfuncs
+
+    def __get_global_src_data(self, powa_ver, ins):
+        """
+        Retrieve the source global data (in the powa database) from the foreign
+        server, and insert them in the *_src_tmp tables on the repository
+        server.
+        """
+        srvid = self.__config["srvid"]
+        errors = []
+
+        snapfuncs = self.__get_global_snapfuncs(powa_ver)
+        if not snapfuncs:
+            # __get_global_snapfuncs already took care of reporting errors
+            return errors
+
         data_src = self.__remote_conn.cursor()
 
-        errors = []
         for snapfunc in snapfuncs:
             if (self.is_stopping()):
-                return
+                return errors
 
             kind_name = snapfunc["name"]
             query_source = snapfunc["query_source"]
@@ -625,7 +620,7 @@ class PowaThread (threading.Thread):
                     data_src.execute("ROLLBACK TO src")
 
             if (self.is_stopping()):
-                return
+                return errors
 
             # insert the data to the transient unlogged table
             ins.execute("SAVEPOINT data")
@@ -634,7 +629,7 @@ class PowaThread (threading.Thread):
                 # For data import the schema is now on the repository server
                 tbl_nsp = get_nsp(self.__repo_conn, external, kind_name)
                 ins.copy_expert("COPY %s FROM stdin" %
-                                get_tmp_name(tbl_nsp, query_source), buf)
+                                get_global_tmp_name(tbl_nsp, query_source), buf)
             except psycopg2.Error as e:
                 err = "Error while inserting data:\n%s" % e
                 self.logger.warning(err)
@@ -645,7 +640,199 @@ class PowaThread (threading.Thread):
             buf.close()
 
         data_src.close()
+        return errors
 
+    def __get_db_snapfuncs(self, srvid):
+        """
+        Get the list of per-db module, with their associated query_source and
+        dbnames.
+        """
+        server_version_num = self.__remote_conn.server_version
+
+        db_queries = defaultdict(list)
+
+        cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
+        cur.execute("SAVEPOINT db_snapshots")
+        try:
+            cur.execute(get_db_snapfuncs_sql(srvid, server_version_num))
+            snapfuncs = cur.fetchall()
+            cur.execute("RELEASE db_snapshots")
+        except psycopg2.Error as e:
+            cur.execute("ROLLBACK TO db_snapshots")
+            err = "Error while getting db snapshot functions:\n%s" % (e)
+            self.logger.error(err)
+            self.logger.error("Exiting worker for server %s..." % srvid)
+            self.__stopping.set()
+            return None
+        cur.close()
+
+        for func in snapfuncs:
+            row = (func['db_module'], func['query_source'], func['tmp_table'])
+
+            if (func['dbnames'] is None):
+                db_queries[None].append(row)
+            else:
+                for dbname in func['dbnames']:
+                    db_queries[dbname].append(row)
+
+        return db_queries
+
+    def __get_db_src_data(self, powa_ver, ins):
+        """
+        Retrieve the source per-database data from the foreign server, and
+        insert them in the *_src_tmp tables on the repository server.
+        """
+        srvid = self.__config["srvid"]
+        errors = []
+
+        # This is a powa 5+ feature
+        if (int(powa_ver[0][0]) < 5):
+            return errors
+
+        db_queries = self.__get_db_snapfuncs(srvid)
+
+        # Bail out if no db module configured
+        if (len(db_queries) == 0):
+            return errors
+
+        for dbname in self.__get_remote_dbnames():
+            # Skip that database if no module
+            if (not None in db_queries and not dbname in db_queries):
+                continue
+
+            errors.extend(self.__get_db_src_data_onedb(ins, db_queries, dbname))
+            if (self.is_stopping()):
+                if (len(errors) > 0):
+                    self.__report_error(errors)
+                return []
+
+        return errors
+
+    def __get_db_src_data_onedb(self, ins, db_queries, dbname):
+        """
+        Per-database worker function for __get_db_src_data().
+        """
+        srvid = self.__config["srvid"]
+        errors = []
+
+        self.logger.debug("Working on remote database %s", dbname)
+
+        try:
+            dbconn = get_connection(self.logger,
+                                    self.__debug,
+                                    override_dbname=dbname,
+                                    **self.__config['dsn'])
+        except psycopg2.Error as e:
+            err = "Could not connect to remote database %s:\n%s" % (dbname, e)
+            self.logger.warning(err)
+            errors.append(err)
+            return errors
+
+        data_src = dbconn.cursor()
+        for row in (db_queries.get(None, []) + db_queries.get(dbname, [])):
+            if (self.is_stopping()):
+                dbconn.close()
+                return errors
+
+            (db_module, query_source, tmp_table) = row
+
+            data_src_sql = """SELECT %d AS srvid, now() AS ts, d.dbid, src.*
+                FROM (%s) src
+                CROSS JOIN (
+                    SELECT oid AS dbid
+                    FROM pg_catalog.pg_database
+                    WHERE datname = current_database()
+                ) d""" % (srvid, query_source)
+            self.logger.debug("Db module %s, calling SQL:\n%s" % (db_module,
+                                                                 data_src_sql))
+            # use savepoint, maybe the query will face some error
+            data_src.execute("SAVEPOINT src")
+
+            # XXX should we use os.pipe() or a temp file instead, to avoid too
+            # much memory consumption?
+            buf = StringIO()
+            try:
+                data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
+            except psycopg2.Error as e:
+                err = "Error while calling query for module %s:\n%s" % (query_source,
+                                                                        e)
+                errors.append(err)
+                data_src.execute("ROLLBACK TO src")
+                continue
+
+            # insert the data to the transient unlogged table
+            ins.execute("SAVEPOINT data")
+            buf.seek(0, SEEK_SET)
+            try:
+                # Use the target table on the repository server for data import
+                ins.copy_expert("COPY %s FROM stdin" % tmp_table, buf)
+            except psycopg2.Error as e:
+                err = "Error while inserting data:\n%s" % e
+                self.logger.warning(err)
+                errors.append(err)
+                self.logger.warning("Giving up for %s on %s", db_module, dbname)
+                ins.execute("ROLLBACK TO data")
+
+            buf.close()
+
+        data_src.close()
+        dbconn.close()
+
+        return errors
+
+    def __get_remote_dbnames(self):
+        """
+        Get the list of databases on the remote servers
+        """
+        res = []
+        cur = self.__remote_conn.cursor()
+        cur.execute("""SELECT datname
+            FROM pg_catalog.pg_database
+            WHERE datallowconn""")
+
+        for row in cur.fetchall():
+            res.append(row[0])
+
+        cur.close()
+        return res
+
+    def __take_snapshot(self):
+        """Main part of the worker thread.  This function will call all the
+        query_src functions enabled for the target server, and insert all the
+        retrieved rows on the repository server, in unlogged tables, and
+        finally call powa_take_snapshot() on the repository server to finish
+        the distant snapshot.  All is done in one transaction, so that there
+        won't be concurrency issues if a snapshot takes longer than the
+        specified interval.  This also ensure that all rows will see the same
+        snapshot timestamp.
+        """
+        srvid = self.__config["srvid"]
+
+        if (self.is_stopping()):
+            return
+
+        self.__connect()
+
+        if (self.__remote_conn is None):
+            self.logger.error("No connection to remote server, snapshot skipped")
+            return
+
+        if (self.__repo_conn is None):
+            self.logger.error("No connection to repository server, snapshot skipped")
+            return
+
+        powa_ver = self.__get_powa_version(self.__remote_conn)
+        ins = self.__repo_conn.cursor()
+
+        # Retrieve the global data from the remote server
+        errors = self.__get_global_src_data(powa_ver, ins)
+        if (self.is_stopping()):
+            if (len(errors) > 0):
+                self.__report_error(errors)
+            return
+
+        # Retrieve the per-db data from the remote server
+        errors.extend(self.__get_db_src_data(powa_ver, ins))
         if (self.is_stopping()):
             if (len(errors) > 0):
                 self.__report_error(errors)

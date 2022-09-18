@@ -414,6 +414,11 @@ class PowaThread (threading.Thread):
         self.last_time = None
         self.__check_powa()
 
+        # __check_powa() is only responsible for making sure that the remote
+        # connection is opened.
+        if (self.__repo_conn is None):
+            self.__connect()
+
         # if this worker has been restarted, restore the previous snapshot
         # time to try to keep up on the same frequency
         if (not self.is_stopping() and self.__repo_conn is not None):

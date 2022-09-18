@@ -457,9 +457,11 @@ class PowaThread (threading.Thread):
         # spikes if the collector itself was stopped for a long time, or if a
         # lot of new servers were added
         if (not self.is_stopping()
-            and self.last_time is not None
-            and ((time.time() -
-                 self.last_time) > self.__config["frequency"])):
+            and (
+                self.last_time is None
+                or
+                ((time.time() - self.last_time) > self.__config["frequency"])
+        )):
             random.seed()
             r = random.randint(0, self.__config["frequency"] - 1)
             self.logger.debug("Spreading snapshot: setting last snapshot to"

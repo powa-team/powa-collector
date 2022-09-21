@@ -11,7 +11,7 @@ Build-Depends:
  python3,
  python3-psycopg2,
  python3-setuptools,
-Standards-Version: 4.6.0
+Standards-Version: 4.6.1
 Rules-Requires-Root: no
 Homepage: https://github.com/powa-team/powa-collector
 Vcs-Browser: https://github.com/powa-team/powa-collector

@@ -63,7 +63,11 @@ class PowaThread (threading.Thread):
         self.logger.debug("Creating worker %s: %r" % (name, config))
 
     def __repr__(self):
-        return ("%s: %s" % (self.name, self.__config["dsn"]))
+        dsn = self.__config["dsn"].copy()
+        if ("password" in dsn):
+            dsn["password"] = "<REDACTED>"
+
+        return ("%s: %s" % (self.name, dsn))
 
     def __get_powa_version(self, conn):
         """Get powa's extension version"""

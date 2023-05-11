@@ -167,10 +167,14 @@ class PowaThread (threading.Thread):
                                     + ": %s" % (e))
                 self.__repo_conn.rollback()
 
+        tbl_config = "powa_extension_config"
+        if ((int(ver[0][0]) <= 4)):
+            tbl_config = "powa_extensions"
+
         hypo_ver = None
         repo_cur.execute("""
             SELECT extname, version
-            FROM {powa}.powa_extensions
+            FROM {powa}.""" + tbl_config + """
             WHERE srvid = %(srvid)s
             """ % {'srvid': srvid})
         exts = repo_cur.fetchall()
@@ -194,7 +198,7 @@ class PowaThread (threading.Thread):
             if (ext[1] is None or ext[1] != remote_ver[0]):
                 try:
                     repo_cur.execute("""
-                            UPDATE {powa}.powa_extensions
+                            UPDATE {powa}.""" + tbl_config + """
                             SET version = %(version)s
                             WHERE srvid = %(srvid)s
                             AND extname = %(extname)s
@@ -218,7 +222,7 @@ class PowaThread (threading.Thread):
         if (remote_ver is None):
             try:
                 repo_cur.execute("""
-                        DELETE FROM {powa}.powa_extensions
+                        DELETE FROM {powa}.""" + tbl_config + """
                         WHERE srvid = %(srvid)s
                         AND extname = 'hypopg'
                         """, {'srvid': srvid, 'hypo_ver': remote_ver})
@@ -231,13 +235,13 @@ class PowaThread (threading.Thread):
             try:
                 if (hypo_ver is None):
                     repo_cur.execute("""
-                            INSERT INTO {powa}.powa_extensions
+                            INSERT INTO {powa}.""" + tbl_config + """
                                 (srvid, extname, version)
                             VALUES (%(srvid)s, 'hypopg', %(hypo_ver)s)
                             """, {'srvid': srvid, 'hypo_ver': remote_ver})
                 else:
                     repo_cur.execute("""
-                            UPDATE {powa}.powa_extensions
+                            UPDATE {powa}.""" + tbl_config + """
                             SET version = %(hypo_ver)s
                             WHERE srvid = %(srvid)s
                             AND extname = 'hypopg'
@@ -574,13 +578,13 @@ class PowaThread (threading.Thread):
             if (self.is_stopping()):
                 return
 
-            module_name = snapfunc["module"]
+            kind_name = snapfunc["name"]
             query_source = snapfunc["query_source"]
             cleanup_sql = snapfunc["query_cleanup"]
             function_name = snapfunc["function_name"]
             external = snapfunc["external"]
 
-            self.logger.debug("Working on module %s", module_name)
+            self.logger.debug("Working on %s", kind_name)
 
             # get the SQL needed to insert the query_src data on the remote
             # server into the transient unlogged table on the repository server
@@ -590,7 +594,7 @@ class PowaThread (threading.Thread):
 
             # execute the query_src functions on the remote server to get its
             # local data (srvid 0)
-            r_nsp = get_nsp(self.__remote_conn, external, module_name)
+            r_nsp = get_nsp(self.__remote_conn, external, kind_name)
             self.logger.debug("Calling %s.%s(0)..." % (r_nsp, query_source))
             data_src_sql = get_src_query(r_nsp, query_source, srvid)
 
@@ -628,7 +632,7 @@ class PowaThread (threading.Thread):
             buf.seek(0, SEEK_SET)
             try:
                 # For data import the schema is now on the repository server
-                tbl_nsp = get_nsp(self.__repo_conn, external, module_name)
+                tbl_nsp = get_nsp(self.__repo_conn, external, kind_name)
                 ins.copy_expert("COPY %s FROM stdin" %
                                 get_tmp_name(tbl_nsp, query_source), buf)
             except psycopg2.Error as e:

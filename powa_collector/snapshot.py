@@ -3,7 +3,7 @@ def get_snapshot_functions(ver):
     # XXX should we ignore entries without query_src?
 
     if (int(ver[0][0]) >= 5):
-        return """SELECT module, external, query_source, query_cleanup,
+        return """SELECT name, external, query_source, query_cleanup,
                     function_name
                   FROM {powa}.powa_functions pf
                   JOIN pg_extension ext ON ext.extname = pf.module
@@ -12,8 +12,8 @@ def get_snapshot_functions(ver):
                   AND srvid = %s
                   ORDER BY priority"""
     else:
-        return """SELECT module, false AS external, query_source, query_cleanup,
-                    function_name
+        return """SELECT module AS name, false AS external, query_source,
+                    query_cleanup, function_name
                   FROM {powa}.powa_functions pf
                   JOIN pg_extension ext ON ext.extname = pf.module
                   JOIN pg_namespace nsp ON nsp.oid = ext.extnamespace

@@ -451,7 +451,7 @@ class PowaThread (threading.Thread):
                                       % self.__config["srvid"])
                     self.__stopping.set()
                 if row:
-                    self.last_time = row[0]
+                    self.last_time = float(row[0])
                     self.logger.debug("Retrieved last snapshot time:"
                                       + " %r" % self.last_time)
                 cur.close()

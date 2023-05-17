@@ -589,7 +589,7 @@ class PowaThread (threading.Thread):
             # get the SQL needed to insert the query_src data on the remote
             # server into the transient unlogged table on the repository server
             if (query_source is None):
-                self.logger.warning("Not query_source for %s" % function_name)
+                self.logger.warning("No query_source for %s" % function_name)
                 continue
 
             # execute the query_src functions on the remote server to get its

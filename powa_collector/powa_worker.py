@@ -17,17 +17,11 @@ import time
 import psycopg2
 from psycopg2.extras import DictCursor
 import logging
-from os import SEEK_SET
 import random
-import sys
 from powa_collector.customconn import get_connection
 from powa_collector.snapshot import (get_global_snapfuncs_sql, get_src_query,
                                      get_db_snapfuncs_sql, get_global_tmp_name,
-                                     get_nsp)
-if (sys.version_info < (3, 0)):
-    from StringIO import StringIO
-else:
-    from io import StringIO
+                                     get_nsp, copy_remote_data_to_repo)
 
 
 class PowaThread (threading.Thread):
@@ -593,51 +587,13 @@ class PowaThread (threading.Thread):
             self.logger.debug("Calling %s.%s(0)..." % (r_nsp, query_source))
             data_src_sql = get_src_query(r_nsp, query_source, srvid)
 
-            # use savepoint, maybe the datasource is not setup on the remote
-            # server
-            data_src.execute("SAVEPOINT src")
+            tbl_nsp = get_nsp(self.__repo_conn, external, kind_name)
+            target_tbl_name = get_global_tmp_name(tbl_nsp, query_source)
 
-            # XXX should we use os.pipe() or a temp file instead, to avoid too
-            # much memory consumption?
-            buf = StringIO()
-            try:
-                data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
-            except psycopg2.Error as e:
-                err = "Error while calling %s.%s:\n%s" % (r_nsp, query_source,
-                                                          e)
-                errors.append(err)
-                data_src.execute("ROLLBACK TO src")
-
-            # execute the cleanup query if provided
-            if (cleanup_sql is not None):
-                data_src.execute("SAVEPOINT src")
-                try:
-                    self.logger.debug("Calling %s..." % cleanup_sql)
-                    data_src.execute(cleanup_sql)
-                except psycopg2.Error as e:
-                    err = "Error while calling %s:\n%s" % (cleanup_sql, e)
-                    errors.append(err)
-                    data_src.execute("ROLLBACK TO src")
-
-            if (self.is_stopping()):
-                return errors
-
-            # insert the data to the transient unlogged table
-            ins.execute("SAVEPOINT data")
-            buf.seek(0, SEEK_SET)
-            try:
-                # For data import the schema is now on the repository server
-                tbl_nsp = get_nsp(self.__repo_conn, external, kind_name)
-                ins.copy_expert("COPY %s FROM stdin" %
-                                get_global_tmp_name(tbl_nsp, query_source), buf)
-            except psycopg2.Error as e:
-                err = "Error while inserting data:\n%s" % e
-                self.logger.warning(err)
-                errors.append(err)
-                self.logger.warning("Giving up for %s", function_name)
-                ins.execute("ROLLBACK TO data")
-
-            buf.close()
+            errors.extend(copy_remote_data_to_repo(self, kind_name, data_src,
+                                                   data_src_sql, ins,
+                                                   target_tbl_name,
+                                                   cleanup_sql))
 
         data_src.close()
         return errors
@@ -745,35 +701,10 @@ class PowaThread (threading.Thread):
                 ) d""" % (srvid, query_source)
             self.logger.debug("Db module %s, calling SQL:\n%s" % (db_module,
                                                                  data_src_sql))
-            # use savepoint, maybe the query will face some error
-            data_src.execute("SAVEPOINT src")
 
-            # XXX should we use os.pipe() or a temp file instead, to avoid too
-            # much memory consumption?
-            buf = StringIO()
-            try:
-                data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
-            except psycopg2.Error as e:
-                err = "Error while calling query for module %s:\n%s" % (query_source,
-                                                                        e)
-                errors.append(err)
-                data_src.execute("ROLLBACK TO src")
-                continue
-
-            # insert the data to the transient unlogged table
-            ins.execute("SAVEPOINT data")
-            buf.seek(0, SEEK_SET)
-            try:
-                # Use the target table on the repository server for data import
-                ins.copy_expert("COPY %s FROM stdin" % tmp_table, buf)
-            except psycopg2.Error as e:
-                err = "Error while inserting data:\n%s" % e
-                self.logger.warning(err)
-                errors.append(err)
-                self.logger.warning("Giving up for %s on %s", db_module, dbname)
-                ins.execute("ROLLBACK TO data")
-
-            buf.close()
+            errors.extend(copy_remote_data_to_repo(self, db_module, data_src,
+                                                   data_src_sql, ins,
+                                                   tmp_table))
 
         data_src.close()
         dbconn.close()

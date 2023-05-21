@@ -1,3 +1,12 @@
+from os import SEEK_SET
+import psycopg2
+import sys
+if (sys.version_info < (3, 0)):
+    from StringIO import StringIO
+else:
+    from io import StringIO
+
+
 def get_global_snapfuncs_sql(ver):
     """Get the list of enabled global functions for snapshotting"""
     # XXX should we ignore entries without query_src?
@@ -49,3 +58,73 @@ def get_nsp(conn, external, module):
         return conn._nsps[module]
     else:
         return conn._nsps['powa']
+
+def copy_remote_data_to_repo(cls, data_name,
+                        data_src, data_src_sql, data_ins, target_tbl_name,
+                        cleanup_sql=None):
+    """
+    Retrieve the wanted datasource from the given connection and insert it on
+    the repository server in the given table.
+
+    data_src: the cursor to use to get the data on the remote server
+    data_src_sql: the SQL query to execute to get the datasource data
+    data_name: a string describing the datasource
+    data_ins: the cursor to use to write the data on the repository server
+    target_tbl_name: a string containing the (fully qualified and properly
+                     quoted) target table name to COPY data to on the
+                     repository server
+    cleanup_sql: an optional SQL query to execute after executing data_src_sql.
+                 Note that this query is executed even if there's an error
+                 during data_src_sql execution
+    """
+    errors = []
+    src_ok = True
+
+    # use savepoint, there could be an error while retrieving data on the
+    # remote server.
+    data_src.execute("SAVEPOINT src")
+
+    # XXX should we use os.pipe() or a temp file instead, to avoid too
+    # much memory consumption?
+    buf = StringIO()
+    try:
+        data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
+    except psycopg2.Error as e:
+        src_ok = False
+        err = "Error retrieving datasource data %s:\n%s" % (data_name, e)
+        errors.append(err)
+        data_src.execute("ROLLBACK TO src")
+
+    # execute the cleanup query if provided
+    if (cleanup_sql is not None):
+        data_src.execute("SAVEPOINT src")
+        try:
+            cls.logger.debug("Calling %s..." % cleanup_sql)
+            data_src.execute(cleanup_sql)
+        except psycopg2.Error as e:
+            err = "Error while calling %s:\n%s" % (cleanup_sql, e)
+            errors.append(err)
+            data_src.execute("ROLLBACK TO src")
+
+    # If user want to stop the collector or if any error happened during
+    # datasource retrieval, there's nothing more to do so simply inform caller
+    # of the errors.
+    if (cls.is_stopping() or not src_ok):
+        return errors
+
+    # insert the data to the transient unlogged table
+    data_ins.execute("SAVEPOINT data")
+    buf.seek(0, SEEK_SET)
+    try:
+        # For data import the schema is now on the repository server
+        data_ins.copy_expert("COPY %s FROM stdin" % target_tbl_name, buf)
+    except psycopg2.Error as e:
+        err = "Error while inserting data:\n%s" % e
+        cls.logger.warning(err)
+        errors.append(err)
+        cls.logger.warning("Giving up for datasource %s", data_name)
+        data_ins.execute("ROLLBACK TO data")
+
+    buf.close()
+
+    return errors

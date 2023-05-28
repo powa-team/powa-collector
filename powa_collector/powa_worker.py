@@ -20,7 +20,9 @@ import logging
 import random
 from powa_collector.customconn import get_connection
 from powa_collector.snapshot import (get_global_snapfuncs_sql, get_src_query,
-                                     get_db_snapfuncs_sql, get_global_tmp_name,
+                                     get_db_mod_snapfuncs_sql,
+                                     get_db_cat_snapfuncs_sql,
+                                     get_global_tmp_name,
                                      get_nsp, copy_remote_data_to_repo)
 
 
@@ -598,45 +600,76 @@ class PowaThread (threading.Thread):
         data_src.close()
         return errors
 
-    def __get_db_snapfuncs(self, srvid):
+    def __get_db_mod_snapfuncs(self, srvid):
         """
         Get the list of per-db module, with their associated query_source and
         dbnames.
         """
         server_version_num = self.__remote_conn.server_version
 
-        db_queries = defaultdict(list)
+        db_mod_queries = defaultdict(list)
 
         cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
         cur.execute("SAVEPOINT db_snapshots")
         try:
-            cur.execute(get_db_snapfuncs_sql(srvid, server_version_num))
-            snapfuncs = cur.fetchall()
+            cur.execute(get_db_mod_snapfuncs_sql(srvid, server_version_num))
+            mod_snapfuncs = cur.fetchall()
             cur.execute("RELEASE db_snapshots")
         except psycopg2.Error as e:
             cur.execute("ROLLBACK TO db_snapshots")
-            err = "Error while getting db snapshot functions:\n%s" % (e)
+            err = "Error while getting db module snapshot functions:\n%s" % (e)
             self.logger.error(err)
             self.logger.error("Exiting worker for server %s..." % srvid)
             self.__stopping.set()
             return None
         cur.close()
 
-        for func in snapfuncs:
+        for func in mod_snapfuncs:
             row = (func['db_module'], func['query_source'], func['tmp_table'])
 
             if (func['dbnames'] is None):
-                db_queries[None].append(row)
+                db_mod_queries[None].append(row)
             else:
                 for dbname in func['dbnames']:
-                    db_queries[dbname].append(row)
+                    db_mod_queries[dbname].append(row)
 
-        return db_queries
+        return db_mod_queries
+
+    def __get_db_cat_snapfuncs(self, srvid):
+        """
+        Get the list of per-db catalogs, with their associated query_source and
+        dbnames.
+        """
+        server_version_num = self.__remote_conn.server_version
+
+        cat_queries = []
+
+        cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
+        cur.execute("SAVEPOINT db_catalog")
+        try:
+            cur.execute(get_db_cat_snapfuncs_sql(srvid, server_version_num))
+            cat_snapfuncs = cur.fetchall()
+            cur.execute("RELEASE db_catalog")
+        except psycopg2.Error as e:
+            cur.execute("ROLLBACK TO db_catalog")
+            err = "Error while getting db catalog snapshot functions:\n%s" % (e)
+            self.logger.error(err)
+            self.logger.error("Exiting worker for server %s..." % srvid)
+            self.__stopping.set()
+            return None
+
+        for func in cat_snapfuncs:
+            row = (func['catname'], func['query_source'], func['tmp_table'],
+                   func['excluded_dbnames'])
+            cat_queries.append(row)
+
+        return cat_queries
 
     def __get_db_src_data(self, powa_ver, ins):
         """
         Retrieve the source per-database data from the foreign server, and
         insert them in the *_src_tmp tables on the repository server.
+        This handles both db_modules and catalog datasources.
         """
         srvid = self.__config["srvid"]
         errors = []
@@ -645,18 +678,28 @@ class PowaThread (threading.Thread):
         if (int(powa_ver[0][0]) < 5):
             return errors
 
-        db_queries = self.__get_db_snapfuncs(srvid)
+        dbnames = self.__get_remote_dbnames()
 
-        # Bail out if no db module configured
-        if (len(db_queries) == 0):
-            return errors
+        db_mod_queries = self.__get_db_mod_snapfuncs(srvid)
+        db_cat_queries = self.__get_db_cat_snapfuncs(srvid)
+        for dbname in dbnames:
+            # Skip that database if no module configured for it
+            do_db_module = (None in db_mod_queries or dbname in db_mod_queries)
+            db_db_cat = False
 
-        for dbname in self.__get_remote_dbnames():
-            # Skip that database if no module
-            if (not None in db_queries and not dbname in db_queries):
+            for (_, _, _, excluded_dbnames) in db_cat_queries:
+                if (dbname not in excluded_dbnames):
+                    do_cat_module = True
+                    break
+
+            # Skip this database if there's no db_module or catalog to import
+            if (not do_db_module and not do_cat_module):
                 continue
 
-            errors.extend(self.__get_db_src_data_onedb(ins, db_queries, dbname))
+            self.logger.debug("Working on remote database %s", dbname)
+            errors.extend(self.__get_db_src_data_onedb(dbname, ins,
+                                                       db_mod_queries,
+                                                       db_cat_queries))
             if (self.is_stopping()):
                 if (len(errors) > 0):
                     self.__report_error(errors)
@@ -664,9 +707,11 @@ class PowaThread (threading.Thread):
 
         return errors
 
-    def __get_db_src_data_onedb(self, ins, db_queries, dbname):
+    def __get_db_src_data_onedb(self, dbname, ins, db_mod_queries,
+                                db_cat_queries):
         """
-        Per-database worker function for __get_db_src_data().
+        Per-database worker function for __get_db_src_data(), taking care of
+        db modules and catalog import.
         """
         srvid = self.__config["srvid"]
         errors = []
@@ -685,7 +730,10 @@ class PowaThread (threading.Thread):
             return errors
 
         data_src = dbconn.cursor()
-        for row in (db_queries.get(None, []) + db_queries.get(dbname, [])):
+
+        # first, process the enabled db_modules on that database
+        for row in (db_mod_queries.get(None, []) + \
+                    db_mod_queries.get(dbname, [])):
             if (self.is_stopping()):
                 dbconn.close()
                 return errors
@@ -703,6 +751,28 @@ class PowaThread (threading.Thread):
                                                                  data_src_sql))
 
             errors.extend(copy_remote_data_to_repo(self, db_module, data_src,
+                                                   data_src_sql, ins,
+                                                   tmp_table))
+
+        # then process the outdated catalogs on that databasr
+        for row in db_cat_queries:
+            (catname, query_source, tmp_table, excluded_dbnames) = row
+
+            # Ignore this catalog if excluded for this database
+            if (dbname in excluded_dbnames):
+                continue
+
+            data_src_sql = """SELECT %d AS srvid, d.dbid, src.*
+                FROM (%s) src
+                CROSS JOIN (
+                    SELECT oid AS dbid
+                    FROM pg_catalog.pg_database
+                    WHERE datname = current_database()
+                ) d""" % (srvid, query_source)
+            self.logger.debug("Catalog %s, calling SQL:\n:%s" % (catname,
+                                                                 data_src_sql))
+
+            errors.extend(copy_remote_data_to_repo(self, catname, data_src,
                                                    data_src_sql, ins,
                                                    tmp_table))
 

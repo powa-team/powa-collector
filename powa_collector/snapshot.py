@@ -34,17 +34,33 @@ def get_global_snapfuncs_sql(ver):
 
 
 def get_src_query(schema, src_fct, srvid):
-    """Get the SQL query we'll use to get results from a snapshot function"""
+    """
+    Get the SQL query for global dataousource we'll use to get results from
+    a snapshot function
+    """
     return ("SELECT %(srvid)d, * FROM %(schema)s.%(fname)s(0)" %
             {'fname': src_fct, 'schema': schema, 'srvid': srvid})
 
 
-def get_db_snapfuncs_sql(srvid, server_version_num):
-    """Get the SQL query we'll use to get results from a snapshot function"""
+def get_db_mod_snapfuncs_sql(srvid, server_version_num):
+    """
+    Get the SQL query for a db_module we'll use to get results from a snapshot
+    function
+    """
     return ("""SELECT db_module, query_source, tmp_table, dbnames
             FROM {powa}.powa_db_functions(%(srvid)d, %(server_version_num)d)
             WHERE operation = 'snapshot'
             ORDER BY priority
+            """ % {'srvid': srvid, 'server_version_num': server_version_num})
+
+
+def get_db_cat_snapfuncs_sql(srvid, server_version_num):
+    """
+    Get the SQL query for a db catalog we'll use to get results from a snapshot
+    function
+    """
+    return ("""SELECT catname, query_source, tmp_table, excluded_dbnames
+            FROM {powa}.powa_catalog_functions(%(srvid)d, %(server_version_num)d)
             """ % {'srvid': srvid, 'server_version_num': server_version_num})
 
 

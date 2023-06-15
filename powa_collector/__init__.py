@@ -16,10 +16,10 @@ The main thread will intercept the following signals:
     - SIGHUP: reload configuration and log and changes done
     - SIGTERM: cleanly terminate all threads and exit
 
-A minimal communication protocol is implented, using the LISTEN/NOTIFY facility
-provided by postgres.  The dedicated main thread repository connection listens
-on the "powa_collector" channel.  A client, such as powa-web, can send requests
-on this channel and the main thread will act and respond accordingly.
+A minimal communication protocol is implemented, using the LISTEN/NOTIFY
+facility provided by postgres.  The dedicated main thread repository connection
+listens on the "powa_collector" channel.  A client, such as powa-web, can send
+requests on this channel and the main thread will act and respond accordingly.
 
 The requests are of the following form:
 

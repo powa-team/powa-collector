@@ -164,7 +164,7 @@ class PowaCollector():
                 # with a json dump as-is.  We therefore also need to make sure
                 # that any non-empty data looks like a json.
 
-                payload = ("%(cmd)s %(status)s {%(data)s}" %
+                payload = ("%(cmd)s %(status)s %(data)s" %
                            {'cmd': cmd, 'status': status, 'data': data})
 
                 # with default configuration, postgres only accept up to 8k
@@ -178,9 +178,8 @@ class PowaCollector():
                                 'status': "KO",
                                 'data': "{ANSWER TOO LONG}"})
 
-                cur.execute("""NOTIFY "%(channel)s", '%(payload)s'""" %
-                            {'channel': channel,
-                             'payload': payload})
+                cur.execute('NOTIFY "' + channel + '", %(payload)s',
+                            {'payload': payload})
 
         cur.close()
 
@@ -189,9 +188,10 @@ class PowaCollector():
         Process a single notification, called by process_notifications.
         """
         status = "OK"
+
         if (cmd == "RELOAD"):
             self.reload_conf()
-            data = '{OK}'
+            data = 'OK'
         elif (cmd == "WORKERS_STATUS"):
             # ignore the message if no channel was received
             if (channel != '-'):
@@ -205,7 +205,7 @@ class PowaCollector():
         # everything else is unhandled
         else:
             status = 'UNKNOWN'
-            data = ''
+            data = 'Message "%s" invalid, command ignored' % cmd
 
         return (status, data)
 

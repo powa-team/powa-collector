@@ -127,10 +127,10 @@ class PowaCollector():
 
         return True
 
-    def process_notification(self):
+    def process_notifications(self):
         """Process PostgreSQL NOTIFY messages.
         These come mainly from the UI, to ask us to reload our configuration,
-        or to display the workers status
+        or to display the workers status.
         """
         if (not self.__repo_conn):
             return
@@ -154,23 +154,8 @@ class PowaCollector():
             self.logger.debug("Received async command: %s %s %r" %
                               (cmd, channel, notif))
 
-            if (cmd == "RELOAD"):
-                self.reload_conf()
-                data = '{OK}'
-            elif (cmd == "WORKERS_STATUS"):
-                # ignore the message if no channel was received
-                if (channel != '-'):
-                    # did the caller request a single server only?  We ignore
-                    # anything but the first parameter passed
-                    if (len(notif) > 0 and notif[0].isdigit()):
-                        w_id = int(notif[0])
-                        data = json.dumps(self.list_workers(w_id, False))
-                    else:
-                        data = json.dumps(self.list_workers(None, False))
-            # everything else is unhandled
-            else:
-                status = 'UNKNOWN'
-                data = ''
+            (status, data) = self.__process_one_notification(cmd, channel,
+                                                             notif)
 
             # if there was a response channel, reply back
             if (channel != '-'):
@@ -198,6 +183,31 @@ class PowaCollector():
                              'payload': payload})
 
         cur.close()
+
+    def __process_one_notification(self, cmd, channel, notif):
+        """
+        Process a single notification, called by process_notifications.
+        """
+        status = "OK"
+        if (cmd == "RELOAD"):
+            self.reload_conf()
+            data = '{OK}'
+        elif (cmd == "WORKERS_STATUS"):
+            # ignore the message if no channel was received
+            if (channel != '-'):
+                # did the caller request a single server only?  We ignore
+                # anything but the first parameter passed
+                if (len(notif) > 0 and notif[0].isdigit()):
+                    w_id = int(notif[0])
+                    data = json.dumps(self.list_workers(w_id, False))
+                else:
+                    data = json.dumps(self.list_workers(None, False))
+        # everything else is unhandled
+        else:
+            status = 'UNKNOWN'
+            data = ''
+
+        return (status, data)
 
     def main(self):
         """Start the active loop.
@@ -242,7 +252,7 @@ class PowaCollector():
 
                 select.select([self.__repo_conn], [], [], 10)
 
-                self.process_notification()
+                self.process_notifications()
         except KeyboardInterrupt:
             self.logger.debug("KeyboardInterrupt caught")
             self.logger.info("Stopping all workers and exiting...")

@@ -54,7 +54,8 @@ class PowaThread (threading.Thread):
         self.__repo_conn = None
         self.__last_repo_conn_errored = False
         self.logger = logging.getLogger("powa-collector")
-        self.last_time = None
+        # last snapshot time, None if unknown
+        self.__last_snap_time = None
         self.__debug = debug
 
         extra = {'threadname': self.name}
@@ -424,7 +425,7 @@ class PowaThread (threading.Thread):
         Get latest snapshot timestamp for the remote server and determine how
         long to sleep before performing the next snapshot.
         Add a random seed to avoid doing all remote servers simultaneously"""
-        self.last_time = None
+        self.__last_snap_time = None
         self.__check_powa()
 
         # __check_powa() is only responsible for making sure that the remote
@@ -453,9 +454,9 @@ class PowaThread (threading.Thread):
                                       % self.__config["srvid"])
                     self.__stopping.set()
                 if row:
-                    self.last_time = float(row[0])
+                    self.__last_snap_time = float(row[0])
                     self.logger.debug("Retrieved last snapshot time:"
-                                      + " %r" % self.last_time)
+                                      + " %r" % self.__last_snap_time)
                 cur.close()
                 self.__repo_conn.commit()
             except Exception as e:
@@ -466,8 +467,8 @@ class PowaThread (threading.Thread):
                 self.__repo_conn.rollback()
 
         # Normalize unknkown last snapshot time
-        if (self.last_time == Decimal('-Infinity')):
-            self.last_time = None
+        if (self.__last_snap_time == Decimal('-Infinity')):
+            self.__last_snap_time = None
 
         # if this worker was stopped longer than the configured frequency,
         # assign last snapshot time to a random time between now and now minus
@@ -476,24 +477,26 @@ class PowaThread (threading.Thread):
         # lot of new servers were added
         if (not self.is_stopping()
             and (
-                self.last_time is None
+                self.__last_snap_time is None
                 or
-                ((time.time() - self.last_time) > self.__config["frequency"])
+                ((time.time() - self.__last_snap_time) >
+                    self.__config["frequency"])
         )):
             random.seed()
             r = random.randint(0, self.__config["frequency"] - 1)
             self.logger.debug("Spreading snapshot: setting last snapshot to"
                               + " %d seconds ago (frequency: %d)" %
                               (r, self.__config["frequency"]))
-            self.last_time = time.time() - r
+            self.__last_snap_time = time.time() - r
 
         while (not self.is_stopping()):
             start_time = time.time()
             if (self.__got_sighup.isSet()):
                 self.__reload()
 
-            if ((self.last_time is None) or
-                    (start_time - self.last_time) >= self.__config["frequency"]):
+            if ((self.__last_snap_time is None) or
+                ((start_time - self.__last_snap_time) >=
+                    self.__config["frequency"])):
                 try:
                     self.__take_snapshot()
                 except psycopg2.Error as e:
@@ -501,9 +504,9 @@ class PowaThread (threading.Thread):
                     # It will reconnect automatically at next snapshot
                     self.__disconnect_all()
 
-                self.last_time = time.time()
-            time_to_sleep = self.__config["frequency"] - (self.last_time -
-                                                          start_time)
+                self.__last_snap_time = time.time()
+            time_to_sleep = self.__config["frequency"] - \
+                                (self.__last_snap_time - start_time)
 
             # sleep until the scheduled processing time, or if the main thread
             # asked us to perform an action or if we were asked to stop.

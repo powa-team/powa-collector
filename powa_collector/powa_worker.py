@@ -44,6 +44,8 @@ class PowaThread (threading.Thread):
         self.__stopping = threading.Event()
         # this event is set when we should reload the configuration
         self.__got_sighup = threading.Event()
+        # this event is set internally while a snapshot is being performed
+        self.__snapshot_in_progress = threading.Event()
         self.__connected = threading.Event()
         self.name = name
         self.__repository = repository
@@ -498,7 +500,9 @@ class PowaThread (threading.Thread):
                 ((start_time - self.__last_snap_time) >=
                     self.__config["frequency"])):
                 try:
+                    self.__snapshot_in_progress.set()
                     self.__take_snapshot()
+                    self.__snapshot_in_progress.clear()
                 except psycopg2.Error as e:
                     self.logger.error("Error during snapshot: %s" % e)
                     # It will reconnect automatically at next snapshot

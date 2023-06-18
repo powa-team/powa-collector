@@ -70,6 +70,18 @@ class PowaCollector():
         signal.signal(signal.SIGHUP, self.sighandler)
         signal.signal(signal.SIGTERM, self.sighandler)
 
+
+    def __get_worker_by_srvid(self, srvid):
+        """Get the worker thread for the given srvid, if any"""
+        for k, worker in self.workers.items():
+            worker_srvid = self.config["servers"][k]["srvid"]
+
+            if (srvid != worker_srvid):
+                continue
+
+            return worker
+        return None
+
     def connect(self, options):
         """Connect to the repository
         Used for communication with powa-web and users of the communication repository
@@ -154,8 +166,12 @@ class PowaCollector():
             self.logger.debug("Received async command: %s %s %r" %
                               (cmd, channel, notif))
 
-            (status, data) = self.__process_one_notification(cmd, channel,
-                                                             notif)
+            try:
+                (status, data) = self.__process_one_notification(cmd, channel,
+                                                                 notif)
+            except Exception as e:
+                status = 'ERROR'
+                data = str(e)
 
             # if there was a response channel, reply back
             if (channel != '-'):

@@ -54,14 +54,22 @@ def get_db_mod_snapfuncs_sql(srvid, server_version_num):
             """ % {'srvid': srvid, 'server_version_num': server_version_num})
 
 
-def get_db_cat_snapfuncs_sql(srvid, server_version_num):
+def get_db_cat_snapfuncs_sql(srvid, server_version_num, force=False):
     """
     Get the SQL query for a db catalog we'll use to get results from a snapshot
     function
     """
+    if force:
+        interval = 'NULL'
+    else:
+        interval = "'1 year'"
+
     return ("""SELECT catname, query_source, tmp_table, excluded_dbnames
-            FROM {powa}.powa_catalog_functions(%(srvid)d, %(server_version_num)d)
-            """ % {'srvid': srvid, 'server_version_num': server_version_num})
+            FROM {powa}.powa_catalog_functions(
+                %(srvid)d, %(server_version_num)d, %(interval)s
+            )""" % {'srvid': srvid,
+                    'server_version_num': server_version_num,
+                    'interval': interval})
 
 
 def get_global_tmp_name(schema, src_fct):

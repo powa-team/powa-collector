@@ -36,7 +36,7 @@ class PowaThread (threading.Thread):
         # we use this event to sleep on the worker main loop.  It'll be set by
         # the main thread through one of the public functions, when a SIGHUP
         # was received to notify us to reload our config, or if we should
-        # terminate.  Both public functions will first set the required event
+        # terminate.  All public functions will first set the required event
         # before setting this one, to avoid missing an event in case of the
         # sleep ends at exactly the same time
         self.__stop_sleep = threading.Event()
@@ -44,6 +44,8 @@ class PowaThread (threading.Thread):
         self.__stopping = threading.Event()
         # this event is set when we should reload the configuration
         self.__got_sighup = threading.Event()
+        # this event is set when we should force an immediate snapshot
+        self.__force_snapshot = threading.Event()
         # this event is set internally while a snapshot is being performed
         self.__snapshot_in_progress = threading.Event()
         self.__connected = threading.Event()
@@ -498,9 +500,12 @@ class PowaThread (threading.Thread):
 
             if ((self.__last_snap_time is None) or
                 ((start_time - self.__last_snap_time) >=
-                    self.__config["frequency"])):
+                    self.__config["frequency"]) or
+                (self.__force_snapshot.isSet())):
                 try:
                     self.__snapshot_in_progress.set()
+                    if (self.__force_snapshot.isSet()):
+                        self.__force_snapshot.clear()
                     self.__take_snapshot()
                     self.__snapshot_in_progress.clear()
                 except psycopg2.Error as e:
@@ -927,3 +932,24 @@ class PowaThread (threading.Thread):
             return "no connection to remote server"
         else:
             return "running"
+
+    def is_snapshot_in_progress(self):
+        """Returns whether the worker is currently performing a snapshot"""
+        return self.__snapshot_in_progress.isSet()
+
+    def request_forced_snapshot(self):
+        """Ask for an immediate snapshot"""
+        self.logger.debug('Forced snapshot required')
+
+        if (self.__snapshot_in_progress.isSet()):
+            return ('ERROR', 'A snapshot is already in progress')
+
+        if (self.__force_snapshot.isSet()):
+            return ('ERROR', 'A forced snapshot is already scheduled')
+
+        if ((time.time() - self.__last_snap_time ) < 10):
+            return ('ERROR', 'Last snapshot was less than 10s. ago')
+
+        self.__force_snapshot.set()
+        self.__stop_sleep.set()
+        return ('OK', '')

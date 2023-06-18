@@ -32,7 +32,8 @@ from powa_collector.options import (parse_options, get_full_config,
                                     add_servers_config)
 from powa_collector.powa_worker import PowaThread
 from powa_collector.customconn import get_connection
-from powa_collector.notify import notify_parse_refresh_db_cat
+from powa_collector.notify import (notify_parse_force_snapshot,
+                                   notify_parse_refresh_db_cat)
 import psycopg2
 import select
 import logging
@@ -244,6 +245,14 @@ class PowaCollector():
                     data = 'Snapshot in progress'
                 else:
                     data = 'Snapshot wil begin shortly'
+        elif (cmd == "REFRESH_DB_CAT"):
+            (r_srvid, r_dbnames) = notify_parse_refresh_db_cat(notif)
+            worker = self.__get_worker_by_srvid(r_srvid)
+
+            if (worker is None):
+                raise Exception("Server id %d not found" % r_srvid)
+
+            (status, data) = worker.register_cat_refresh(r_dbnames)
 
         # everything else is unhandled
         else:

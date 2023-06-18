@@ -48,6 +48,12 @@ class PowaThread (threading.Thread):
         self.__force_snapshot = threading.Event()
         # this event is set internally while a snapshot is being performed
         self.__snapshot_in_progress = threading.Event()
+        # protects __register_cat_refresh_dbnames only
+        self.__register_cat_refresh_lock = threading.Lock()
+        # Info for registering catalog refresh.  None means no refresh asked,
+        # empty array means all db, otherwise a list of dbnames.  There's no
+        # associated Event as this won't change the normal snapshot scheduling.
+        self.__register_cat_refresh_dbnames = None
         self.__connected = threading.Event()
         self.name = name
         self.__repository = repository
@@ -658,8 +664,21 @@ class PowaThread (threading.Thread):
 
         cur = self.__repo_conn.cursor(cursor_factory=DictCursor)
         cur.execute("SAVEPOINT db_catalog")
+        forced_dbnames = None
         try:
-            cur.execute(get_db_cat_snapfuncs_sql(srvid, server_version_num))
+            # Make a copy of the catalog refresh registration if any while
+            # holding a lock, and also clear the registration list at the same
+            # time.
+            # It means that any cat refresh registered after that point won't
+            # be lost and will be treated once during the next snapshot.
+            with self.__register_cat_refresh_lock:
+                if (self.__register_cat_refresh_dbnames is not None):
+                    forced_dbnames = self.__register_cat_refresh_dbnames.copy()
+                    self.__register_cat_refresh_dbnames = None
+
+            force = True if forced_dbnames is not None else False
+            cur.execute(get_db_cat_snapfuncs_sql(srvid, server_version_num,
+                                                 force))
             cat_snapfuncs = cur.fetchall()
             cur.execute("RELEASE db_catalog")
         except psycopg2.Error as e:
@@ -675,7 +694,7 @@ class PowaThread (threading.Thread):
                    func['excluded_dbnames'])
             cat_queries.append(row)
 
-        return cat_queries
+        return (cat_queries, forced_dbnames)
 
     def __get_db_src_data(self, powa_ver, ins):
         """
@@ -693,25 +712,33 @@ class PowaThread (threading.Thread):
         dbnames = self.__get_remote_dbnames()
 
         db_mod_queries = self.__get_db_mod_snapfuncs(srvid)
-        db_cat_queries = self.__get_db_cat_snapfuncs(srvid)
+        (db_cat_queries, forced_cat_dbnames) = self.__get_db_cat_snapfuncs(srvid)
         for dbname in dbnames:
             # Skip that database if no module configured for it
             do_db_module = (None in db_mod_queries or dbname in db_mod_queries)
-            db_db_cat = False
+            do_db_cat = False
 
-            for (_, _, _, excluded_dbnames) in db_cat_queries:
-                if (dbname not in excluded_dbnames):
-                    do_cat_module = True
-                    break
+            if (forced_cat_dbnames is not None):
+                if (len(forced_cat_dbnames) == 0):
+                    do_db_cat = True
+                else:
+                    do_db_cat = (dbname in forced_cat_dbnames)
+
+            if not do_db_cat:
+                for (_, _, _, excluded_dbnames) in db_cat_queries:
+                    if (dbname not in excluded_dbnames):
+                        do_db_cat = True
+                        break
 
             # Skip this database if there's no db_module or catalog to import
-            if (not do_db_module and not do_cat_module):
+            if (not do_db_module and not do_db_cat):
                 continue
 
             self.logger.debug("Working on remote database %s", dbname)
             errors.extend(self.__get_db_src_data_onedb(dbname, ins,
                                                        db_mod_queries,
-                                                       db_cat_queries))
+                                                       db_cat_queries,
+                                                       forced_cat_dbnames))
             if (self.is_stopping()):
                 if (len(errors) > 0):
                     self.__report_error(errors)
@@ -720,7 +747,7 @@ class PowaThread (threading.Thread):
         return errors
 
     def __get_db_src_data_onedb(self, dbname, ins, db_mod_queries,
-                                db_cat_queries):
+                                db_cat_queries, forced_cat_dbnames):
         """
         Per-database worker function for __get_db_src_data(), taking care of
         db modules and catalog import.
@@ -771,6 +798,12 @@ class PowaThread (threading.Thread):
             (catname, query_source, tmp_table, excluded_dbnames) = row
 
             # Ignore this catalog if excluded for this database
+            if (forced_cat_dbnames is not None):
+                if (len(forced_cat_dbnames) == 0):
+                    # empty means to process all databases
+                    pass
+                elif (dbname not in forced_cat_dbnames):
+                    continue
             if (dbname in excluded_dbnames):
                 continue
 
@@ -953,3 +986,26 @@ class PowaThread (threading.Thread):
         self.__force_snapshot.set()
         self.__stop_sleep.set()
         return ('OK', '')
+
+    def register_cat_refresh(self, dbnames=[]):
+        """
+        Register a catalog refresh on the wanted databases (or all) during the
+        next snapshot.
+        """
+        self.logger.debug('Cat refresh required on databases %r', dbnames)
+
+        with self.__register_cat_refresh_lock:
+            if (self.__register_cat_refresh_dbnames is None):
+                self.__register_cat_refresh_dbnames = dbnames.copy()
+            elif (len(dbnames) == 0):
+                # passed empty array means all databases
+                self.__register_cat_refresh_dbnames = []
+            # If the stored array is empty, it means someone asked to refresh
+            # the catalogs on all databases, so nothing to do.  Otherwise, just
+            # add the givend databases
+            elif (len(self.__register_cat_refresh_dbnames) != 0):
+                # it's ok to have duplicates, we don't expect too many request,
+                # and we want to minimize the lock time
+                self.__register_snapshot.extend(dbnames)
+
+        return ('OK', 'Catalogs will be refreshed during the next snapshot')

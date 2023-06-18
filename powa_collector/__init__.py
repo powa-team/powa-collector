@@ -32,11 +32,13 @@ from powa_collector.options import (parse_options, get_full_config,
                                     add_servers_config)
 from powa_collector.powa_worker import PowaThread
 from powa_collector.customconn import get_connection
+from powa_collector.notify import notify_parse_refresh_db_cat
 import psycopg2
 import select
 import logging
 import json
 import signal
+import time
 
 __VERSION__ = '1.2.0'
 __VERSION_NUM__ = [int(part) for part in __VERSION__.split('.')]
@@ -204,6 +206,7 @@ class PowaCollector():
         Process a single notification, called by process_notifications.
         """
         status = "OK"
+        data = ''
 
         if (cmd == "RELOAD"):
             self.reload_conf()
@@ -218,6 +221,30 @@ class PowaCollector():
                     data = json.dumps(self.list_workers(w_id, False))
                 else:
                     data = json.dumps(self.list_workers(None, False))
+        elif (cmd == "FORCE_SNAPSHOT"):
+            r_srvid = notify_parse_force_snapshot(notif)
+            worker = self.__get_worker_by_srvid(r_srvid)
+
+            if (worker is None):
+                raise Exception("Server id %d not found" % r_srvid)
+
+            request_time = time.time()
+            (status, data) = worker.request_forced_snapshot()
+
+            # If a snapshot could be scheduled, wait just a bit and see if we
+            # can report that the snapshot has already begun or will be started
+            # shortly.  It's possible, although unlikely, that the snapshot was
+            # started and finished during that time.  We don't try to properly
+            # detect that case, as it should only happen in toy setups.  We
+            # might want to change that later if we want to provide a way to
+            # inform callers of the completion of the snapshot they requested.
+            if (status == 'OK'):
+                time.sleep(0.1)
+                if worker.is_snapshot_in_progress():
+                    data = 'Snapshot in progress'
+                else:
+                    data = 'Snapshot wil begin shortly'
+
         # everything else is unhandled
         else:
             status = 'UNKNOWN'

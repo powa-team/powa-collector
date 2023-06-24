@@ -24,6 +24,7 @@ from powa_collector.snapshot import (get_global_snapfuncs_sql, get_src_query,
                                      get_db_cat_snapfuncs_sql,
                                      get_global_tmp_name,
                                      get_nsp, copy_remote_data_to_repo)
+from powa_collector.utils import get_powa_version
 
 
 class PowaThread (threading.Thread):
@@ -80,25 +81,12 @@ class PowaThread (threading.Thread):
 
         return ("%s: %s" % (self.name, dsn))
 
-    def __get_powa_version(self, conn):
-        """Get powa's extension version"""
-        cur = conn.cursor()
-        cur.execute("""SELECT
-            regexp_split_to_array(extversion, '\\.'),
-            extversion
-            FROM pg_catalog.pg_extension
-            WHERE extname = 'powa'""")
-        res = cur.fetchone()
-        cur.close()
-
-        return res
-
     def __maybe_load_powa(self, conn):
         """Loads Powa if it's not already and it's needed.
         Only supports 4.0+ extension, and this version can be loaded on the fly
         """
 
-        ver = self.__get_powa_version(conn)
+        ver = get_powa_version(conn)
 
         if (not ver):
             self.logger.error("PoWA extension not found")
@@ -133,7 +121,7 @@ class PowaThread (threading.Thread):
         if (self.__repo_conn is None):
             self.__connect()
 
-        ver = self.__get_powa_version(self.__repo_conn)
+        ver = get_powa_version(self.__repo_conn)
 
         # Check and update PG and dependencies versions, for powa 4.1+
         if (not ver or (int(ver[0][0]) == 4 and int(ver[0][1]) == 0)):
@@ -867,7 +855,7 @@ class PowaThread (threading.Thread):
             self.logger.error("No connection to repository server, snapshot skipped")
             return
 
-        powa_ver = self.__get_powa_version(self.__remote_conn)
+        powa_ver = get_powa_version(self.__remote_conn)
         ins = self.__repo_conn.cursor()
 
         # Retrieve the global data from the remote server

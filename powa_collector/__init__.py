@@ -34,6 +34,7 @@ from powa_collector.powa_worker import PowaThread
 from powa_collector.customconn import get_connection
 from powa_collector.notify import (notify_parse_force_snapshot,
                                    notify_parse_refresh_db_cat)
+from powa_collector.utils import conf_are_equal
 import psycopg2
 import select
 import logging
@@ -415,20 +416,3 @@ class PowaCollector():
 
         self.config = config_new
         self.logger.info('Reload done')
-
-
-def conf_are_equal(conf1, conf2):
-    """Compare two configurations, returns True if equal"""
-    for k in conf1.keys():
-        if (k not in conf2):
-            return False
-        if (conf1[k] != conf2[k]):
-            return False
-
-    for k in conf2.keys():
-        if (k not in conf1):
-            return False
-        if (conf1[k] != conf2[k]):
-            return False
-
-    return True

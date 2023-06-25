@@ -33,7 +33,8 @@ from powa_collector.options import (parse_options, get_full_config,
 from powa_collector.powa_worker import PowaThread
 from powa_collector.customconn import get_connection
 from powa_collector.notify import (notify_parse_force_snapshot,
-                                   notify_parse_refresh_db_cat)
+                                   notify_parse_refresh_db_cat,
+                                   notify_allowed)
 from powa_collector.utils import conf_are_equal
 import psycopg2
 import select
@@ -155,27 +156,34 @@ class PowaCollector():
         cur = self.__repo_conn.cursor()
 
         while (self.__repo_conn.notifies):
-            notif = self.__repo_conn.notifies.pop(0).payload.split(' ')
+            notify = self.__repo_conn.notifies.pop(0)
+            pid = notify.pid
+            payload = notify.payload.split(' ')
             status = ''
-            cmd = notif.pop(0)
+            cmd = payload.pop(0)
             channel = "-"
             status = "OK"
             data = None
 
             # the channel is mandatory, but if the message can be processed
             # without answering, we'll try to
-            if (len(notif) > 0):
-                channel = notif.pop(0)
+            if (len(payload) > 0):
+                channel = payload.pop(0)
 
             self.logger.debug("Received async command: %s %s %r" %
-                              (cmd, channel, notif))
+                              (cmd, channel, payload))
 
-            try:
-                (status, data) = self.__process_one_notification(cmd, channel,
-                                                                 notif)
-            except Exception as e:
+            if (not notify_allowed(pid, self.__repo_conn)):
                 status = 'ERROR'
-                data = str(e)
+                data = 'Permission denied'
+            else:
+                try:
+                    (status, data) = self.__process_one_notification(cmd,
+                                                                     channel,
+                                                                     payload)
+                except Exception as e:
+                    status = 'ERROR'
+                    data = str(e)
 
             # if there was a response channel, reply back
             if (channel != '-'):

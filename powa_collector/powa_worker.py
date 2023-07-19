@@ -684,7 +684,7 @@ class PowaThread (threading.Thread):
 
         return (cat_queries, forced_dbnames)
 
-    def __get_db_src_data(self, powa_ver, ins):
+    def __get_db_src_data(self, powa_ver, now, ins):
         """
         Retrieve the source per-database data from the foreign server, and
         insert them in the *_src_tmp tables on the repository server.
@@ -723,7 +723,7 @@ class PowaThread (threading.Thread):
                 continue
 
             self.logger.debug("Working on remote database %s", dbname)
-            errors.extend(self.__get_db_src_data_onedb(dbname, ins,
+            errors.extend(self.__get_db_src_data_onedb(now, dbname, ins,
                                                        db_mod_queries,
                                                        db_cat_queries,
                                                        forced_cat_dbnames))
@@ -734,7 +734,7 @@ class PowaThread (threading.Thread):
 
         return errors
 
-    def __get_db_src_data_onedb(self, dbname, ins, db_mod_queries,
+    def __get_db_src_data_onedb(self, now, dbname, ins, db_mod_queries,
                                 db_cat_queries, forced_cat_dbnames):
         """
         Per-database worker function for __get_db_src_data(), taking care of
@@ -767,13 +767,13 @@ class PowaThread (threading.Thread):
 
             (db_module, query_source, tmp_table) = row
 
-            data_src_sql = """SELECT %d AS srvid, now() AS ts, d.dbid, src.*
+            data_src_sql = """SELECT %d AS srvid, '%s' AS ts, d.dbid, src.*
                 FROM (%s) src
                 CROSS JOIN (
                     SELECT oid AS dbid
                     FROM pg_catalog.pg_database
                     WHERE datname = current_database()
-                ) d""" % (srvid, query_source)
+                ) d""" % (srvid, now, query_source)
             self.logger.debug("Db module %s, calling SQL:\n%s" % (db_module,
                                                                  data_src_sql))
 
@@ -865,8 +865,12 @@ class PowaThread (threading.Thread):
                 self.__report_error(errors)
             return
 
+        with self.__remote_conn.cursor() as cur:
+            cur.execute("SELECT now()")
+            now = cur.fetchone()[0]
+
         # Retrieve the per-db data from the remote server
-        errors.extend(self.__get_db_src_data(powa_ver, ins))
+        errors.extend(self.__get_db_src_data(powa_ver, now, ins))
         if (self.is_stopping()):
             if (len(errors) > 0):
                 self.__report_error(errors)

@@ -479,33 +479,34 @@ class PowaThread (threading.Thread):
         # duration.  This will help to spread the snapshots and avoid activity
         # spikes if the collector itself was stopped for a long time, or if a
         # lot of new servers were added
+        freq = self.__config["frequency"]
         if (not self.is_stopping()
             and (
                 self.__last_snap_time is None
                 or
-                ((time.time() - self.__last_snap_time) >
-                    self.__config["frequency"])
+                ((time.time() - self.__last_snap_time) > freq)
         )):
             random.seed()
             r = random.randint(0, self.__config["frequency"] - 1)
             self.logger.debug("Spreading snapshot: setting last snapshot to"
                               + " %d seconds ago (frequency: %d)" %
-                              (r, self.__config["frequency"]))
+                              (r, freq))
             self.__last_snap_time = time.time() - r
 
         while (not self.is_stopping()):
-            start_time = time.time()
             if (self.__got_sighup.isSet()):
                 self.__reload()
 
             if ((self.__last_snap_time is None) or
-                ((start_time - self.__last_snap_time) >=
-                    self.__config["frequency"]) or
+                ((time.time() - self.__last_snap_time) >= freq) or
                 (self.__force_snapshot.isSet())):
                 try:
                     self.__snapshot_in_progress.set()
                     if (self.__force_snapshot.isSet()):
                         self.__force_snapshot.clear()
+
+                    self.__last_snap_time = time.time()
+
                     self.__take_snapshot()
                     self.__snapshot_in_progress.clear()
                 except psycopg2.Error as e:
@@ -513,9 +514,8 @@ class PowaThread (threading.Thread):
                     # It will reconnect automatically at next snapshot
                     self.__disconnect_all()
 
-                self.__last_snap_time = time.time()
-            time_to_sleep = self.__config["frequency"] - \
-                                (self.__last_snap_time - start_time)
+            time_to_sleep = max(self.__config["frequency"] - \
+                                (time.time() - self.__last_snap_time), 0)
 
             # sleep until the scheduled processing time, or if the main thread
             # asked us to perform an action or if we were asked to stop.

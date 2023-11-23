@@ -11,6 +11,7 @@ SAMPLE_CONFIG_FILE = """
     "repository": {
         "dsn": "postgresql://powa_user@localhost:5432/powa",
     },
+    "use_server_alias": false
     "debug": false
 }
 
@@ -42,7 +43,7 @@ def add_servers_config(conn, config):
     cur = conn.cursor()
     cur.execute("""
                 SELECT id, hostname, port, username, password, dbname,
-                    frequency
+                    frequency, coalesce(alias, '') AS alias
                 FROM {powa}.powa_servers s
                 WHERE s.id > 0
                 AND s.frequency > 0
@@ -62,6 +63,10 @@ def add_servers_config(conn, config):
         config["servers"][key] = {}
         config["servers"][key]["dsn"] = parms
         config["servers"][key]["frequency"] = row[6]
+        if (config["use_server_alias"] and row[7] != ''):
+            config["servers"][key]["alias"] = row[7]
+        else:
+            config["servers"][key]["alias"] = key
         config["servers"][key]["srvid"] = row[0]
 
     conn.commit()
@@ -97,8 +102,9 @@ def parse_options():
         print(SAMPLE_CONFIG_FILE)
         sys.exit(1)
 
-    if ('debug' not in options):
-        options["debug"] = False
+    for opt in ['use_server_alias', 'debug']:
+        if (opt not in options):
+            options[opt] = False
 
     return options
 

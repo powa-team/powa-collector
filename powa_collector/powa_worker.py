@@ -857,7 +857,7 @@ class PowaThread (threading.Thread):
             self.logger.error("No connection to repository server, snapshot skipped")
             return
 
-        powa_ver = get_powa_version(self.__remote_conn)
+        powa_ver = get_powa_version(self.__repo_conn)
         ins = self.__repo_conn.cursor()
 
         # Retrieve the global data from the remote server

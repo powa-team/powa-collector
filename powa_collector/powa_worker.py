@@ -126,6 +126,7 @@ class PowaThread (threading.Thread):
 
         # Check and update PG and dependencies versions, for powa 4.1+
         if (not ver or (int(ver[0][0]) == 4 and int(ver[0][1]) == 0)):
+            self.__disconnect_repo()
             return
 
         self.logger.debug("Checking postgres and dependencies versions")

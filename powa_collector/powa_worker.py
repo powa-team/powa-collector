@@ -56,7 +56,9 @@ class PowaThread (threading.Thread):
         # associated Event as this won't change the normal snapshot scheduling.
         self.__register_cat_refresh_dbnames = None
         self.__connected = threading.Event()
-        self.name = name
+        # the alias can be the dsn is use_server_alias is false or there's no
+        # alias defined for that remote server.
+        self.name = config["alias"]
         self.__repository = repository
         self.__config = config
         self.__pending_config = None

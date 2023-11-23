@@ -81,11 +81,12 @@ def log_query(cls, query, params=None, exception=None):
     if exception is not None:
         fmt = "Error during query execution:\n{}\n".format(exception)
 
-    fmt += "query: {ms} ms\n{query}"
+    fmt += "query on {dsn}: {ms} ms\n{query}"
     if params is not None:
         fmt += "\n{params}"
 
-    cls.connection._logger.debug(fmt.format(ms=t, query=query, params=params))
+    cls.connection._logger.debug(fmt.format(ms=t, dsn=cls.connection.dsn,
+                                 query=query, params=params))
 
 
 def get_connection(logger, debug, *args, **kwargs):

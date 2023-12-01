@@ -132,9 +132,10 @@ def get_connection(logger, debug, *args, **kwargs):
         logger.debug("extension schemas: %r" % ext_nsps)
         conn._nsps = ext_nsps
 
-    # If using powa 5+n make sure everything has to be fully qualified.
+    # If using powa 5+ (or connecting to a non-powa database) make sure
+    # everything has to be fully qualified.
     powa_ver = get_powa_version(conn)
-    if (int(powa_ver[0][0]) >= 5):
+    if (powa_ver is None or int(powa_ver[0][0]) >= 5):
         logger.debug("Setting secure search_path")
         cur.execute("SET search_path TO 'pg_catalog'");
 

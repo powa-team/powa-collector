@@ -858,6 +858,20 @@ class PowaThread (threading.Thread):
             return
 
         powa_ver = get_powa_version(self.__repo_conn)
+        powa_remote_ver = get_powa_version(self.__remote_conn)
+
+        # We require the same powa major version (X.Y) on the repository and
+        # each remote server.
+        if (powa_ver[0][0] != powa_remote_ver[0][0] or
+            powa_ver[0][1] != powa_remote_ver[0][1]):
+            error = ("Incompatible PoWA version between the repository server"
+            + " (%s.X) and the remote host (%s.X)" % (
+                    powa_ver[0][0] + "." + powa_ver[0][1],
+                    powa_remote_ver[0][0] + "." + powa_remote_ver[0][1]))
+
+            self.__report_error(error)
+            self.__disconnect_repo()
+            return
         ins = self.__repo_conn.cursor()
 
         # Retrieve the global data from the remote server

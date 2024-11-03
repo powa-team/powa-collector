@@ -1,6 +1,6 @@
 1.2.0:
   New Features:
-    - Automatically detect hypopg on remort servers (Julien Rouhaud, thanks to
+    - Automatically detect hypopg on remote servers (Julien Rouhaud, thanks to
       github user MikhailSaynukov for the request)
   Bugfixes:
     - Fix sleep time calculation (Marc Cousin)

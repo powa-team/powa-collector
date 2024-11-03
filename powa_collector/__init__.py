@@ -43,7 +43,7 @@ import json
 import signal
 import time
 
-__VERSION__ = '1.2.0'
+__VERSION__ = '1.3.0'
 __VERSION_NUM__ = [int(part) for part in __VERSION__.split('.')]
 
 

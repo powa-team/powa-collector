@@ -113,6 +113,7 @@ def copy_remote_data_to_repo(cls, data_name,
     buf = StringIO()
     try:
         data_src.copy_expert("COPY (%s) TO stdout" % data_src_sql, buf)
+        data_src.execute("RELEASE src")
     except psycopg2.Error as e:
         src_ok = False
         err = "Error retrieving datasource data %s:\n%s" % (data_name, e)
@@ -125,6 +126,7 @@ def copy_remote_data_to_repo(cls, data_name,
         try:
             cls.logger.debug("Calling %s..." % cleanup_sql)
             data_src.execute(cleanup_sql)
+            data_src.execute("RELEASE src")
         except psycopg2.Error as e:
             err = "Error while calling %s:\n%s" % (cleanup_sql, e)
             errors.append(err)
@@ -142,6 +144,7 @@ def copy_remote_data_to_repo(cls, data_name,
     try:
         # For data import the schema is now on the repository server
         data_ins.copy_expert("COPY %s FROM stdin" % target_tbl_name, buf)
+        data_ins.execute("RELEASE data")
     except psycopg2.Error as e:
         err = "Error while inserting data:\n%s" % e
         cls.logger.warning(err)

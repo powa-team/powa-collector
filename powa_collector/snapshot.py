@@ -83,9 +83,23 @@ def get_nsp(conn, external, module):
     else:
         return conn._nsps['powa']
 
+def get_table_basename(full_table_name, dbcursor):
+    """
+    Get the basename of a table. We ask PostgreSQL instead of risking doing
+    regexp stuff on this
+    """
+    dbcursor.execute("""SELECT relname
+                    FROM pg_class
+                    WHERE oid = %s::regclass""" , (full_table_name,))
+    row = dbcursor.fetchone()
+    if not row:
+        return None
+    else:
+        return row[0]
+
 def copy_remote_data_to_repo(cls, data_name,
                         data_src, data_src_sql, data_ins, target_tbl_name,
-                        cleanup_sql=None):
+                        srvid, cleanup_sql=None):
     """
     Retrieve the wanted datasource from the given connection and insert it on
     the repository server in the given table.
@@ -138,12 +152,18 @@ def copy_remote_data_to_repo(cls, data_name,
     if (cls.is_stopping() or not src_ok):
         return errors
 
-    # insert the data to the transient unlogged table
+    # insert the data to the local temp table
+    temp_table_name = get_table_basename(target_tbl_name, data_ins) + '_' + str(srvid)
+    data_ins.execute("CREATE TEMP TABLE IF NOT EXISTS %s (CHECK (srvid = %s)) INHERITS (%s)" % (temp_table_name, srvid, target_tbl_name)) ;
+    # Get rid of the lock. We didn't do anything apart from creating the temp table on this session
+    # We're doin a COMMIT and a BEGIN, the psycopg2 is useless for savepoints anyway...
+    data_ins.execute("COMMIT");
+    data_ins.execute("BEGIN");
     data_ins.execute("SAVEPOINT data")
     buf.seek(0, SEEK_SET)
     try:
         # For data import the schema is now on the repository server
-        data_ins.copy_expert("COPY %s FROM stdin" % target_tbl_name, buf)
+        data_ins.copy_expert("COPY %s FROM stdin" % temp_table_name, buf)
         data_ins.execute("RELEASE data")
     except psycopg2.Error as e:
         err = "Error while inserting data:\n%s" % e

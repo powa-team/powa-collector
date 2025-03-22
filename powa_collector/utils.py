@@ -5,7 +5,7 @@ def get_powa_version(conn):
     """Get powa's extension version"""
     cur = conn.cursor()
     cur.execute("""SELECT
-        regexp_split_to_array(extversion, '\\.'),
+        regexp_split_to_array(extversion, E'\\\\.'),
         extversion
         FROM pg_catalog.pg_extension
         WHERE extname = 'powa'""")

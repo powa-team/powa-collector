@@ -117,7 +117,7 @@ class PowaCollector():
 
             # Check if powa-archivist is installed on the repository server
             cur.execute("""SELECT
-                    regexp_split_to_array(extversion, '\\.'),
+                    regexp_split_to_array(extversion, E'\\\\.'),
                     extversion
                 FROM pg_catalog.pg_extension
                 WHERE extname = 'powa'""")

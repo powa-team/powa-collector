@@ -1,3 +1,11 @@
+1.3.1:
+  Bugfixes:
+    - Release the savepoints in copy_remote_data_to_repo (Julien Rouhaud,
+      thanks to Thomas Reiss for the report)
+    - Restore compatibility with standard_conforming_strings = off (Julien
+      Rouhaud, thanks to github user rafaelorafaelo for the report)
+    - Properly detect and report missing extensions (Julien Rouhaud, thanks to
+      github users jw1u1 and rafaelorafaelo who both reported the problem)
 1.3.0:
   New Features:
     - Support for upcoming PoWA v5 new extension model (Julien Rouhaud)

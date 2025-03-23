@@ -78,10 +78,20 @@ def get_global_tmp_name(schema, src_fct):
 
 
 def get_nsp(conn, external, module):
+    """
+    Returns the given module schema.
+    If "external" is true, then it's an external extension so returns its
+    associated schema.
+    If "external" is false then it's an internal module so return the powa
+    extension schema instead.
+
+    Returns None if the module is not found.  Caller is responsible for
+    reporting an appropriate error in that case.
+    """
     if external:
-        return conn._nsps[module]
+        return conn._nsps.get(module, None)
     else:
-        return conn._nsps['powa']
+        return conn._nsps.get('powa', None)
 
 def copy_remote_data_to_repo(cls, data_name,
                         data_src, data_src_sql, data_ins, target_tbl_name,

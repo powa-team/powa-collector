@@ -591,13 +591,27 @@ class PowaThread (threading.Thread):
                 self.logger.warning("No query_source for %s" % function_name)
                 continue
 
+            # get the extension schema on the remote server, or skip this
+            # extension if it's not installed reporting an appropriate error
+            r_nsp = get_nsp(self.__remote_conn, external, kind_name)
+            if r_nsp is None:
+                errors.append("Extension %s is not installed on the the "
+                              "remote server %s" % (kind_name, self.name))
+                continue
+
+            # get the extension schema on the repository server, or skip this
+            # extension if it's not installed reporting an appropriate error
+            tbl_nsp = get_nsp(self.__repo_conn, external, kind_name)
+            if tbl_nsp is None:
+                errors.append("Extension %s is not installed on the the "
+                              "repository server" % (kind_name, ))
+                continue
+
             # execute the query_src functions on the remote server to get its
             # local data (srvid 0)
-            r_nsp = get_nsp(self.__remote_conn, external, kind_name)
             self.logger.debug("Calling %s.%s(0)..." % (r_nsp, query_source))
             data_src_sql = get_src_query(r_nsp, query_source, srvid)
 
-            tbl_nsp = get_nsp(self.__repo_conn, external, kind_name)
             target_tbl_name = get_global_tmp_name(tbl_nsp, query_source)
 
             errors.extend(copy_remote_data_to_repo(self, kind_name, data_src,

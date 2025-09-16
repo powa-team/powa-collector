@@ -616,7 +616,7 @@ class PowaThread (threading.Thread):
 
             errors.extend(copy_remote_data_to_repo(self, kind_name, data_src,
                                                    data_src_sql, ins,
-                                                   target_tbl_name,
+                                                   target_tbl_name, srvid,
                                                    cleanup_sql))
 
         data_src.close()
@@ -795,7 +795,7 @@ class PowaThread (threading.Thread):
 
             errors.extend(copy_remote_data_to_repo(self, db_module, data_src,
                                                    data_src_sql, ins,
-                                                   tmp_table))
+                                                   tmp_table, srvid))
 
         # then process the outdated catalogs on that databasr
         for row in db_cat_queries:
@@ -823,7 +823,7 @@ class PowaThread (threading.Thread):
 
             errors.extend(copy_remote_data_to_repo(self, catname, data_src,
                                                    data_src_sql, ins,
-                                                   tmp_table))
+                                                   tmp_table, srvid))
 
         data_src.close()
         dbconn.close()

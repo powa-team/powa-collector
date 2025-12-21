@@ -155,6 +155,7 @@ def copy_remote_data_to_repo(cls, data_name,
         # For data import the schema is now on the repository server
         data_ins.copy_expert("COPY %s FROM stdin" % target_tbl_name, buf)
         data_ins.execute("RELEASE data")
+        data_ins.execute("SET application_name TO 'end copy_remote_data_to_repo'")
     except psycopg2.Error as e:
         err = "Error while inserting data:\n%s" % e
         cls.logger.warning(err)

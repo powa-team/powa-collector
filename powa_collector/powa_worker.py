@@ -584,6 +584,7 @@ class PowaThread (threading.Thread):
             external = snapfunc["external"]
 
             self.logger.debug("Working on %s", kind_name)
+            ins.execute(f"SET application_name to 'working on {kind_name}...'")
 
             # get the SQL needed to insert the query_src data on the remote
             # server into the transient unlogged table on the repository server
@@ -618,7 +619,9 @@ class PowaThread (threading.Thread):
                                                    data_src_sql, ins,
                                                    target_tbl_name,
                                                    cleanup_sql))
+            ins.execute(f"SET application_name to 'done with {kind_name}...'")
 
+        ins.execute("SET application_name TO 'finished __get_global_src_data'")
         data_src.close()
         return errors
 
@@ -718,6 +721,7 @@ class PowaThread (threading.Thread):
         db_mod_queries = self.__get_db_mod_snapfuncs(srvid)
         (db_cat_queries, forced_cat_dbnames) = self.__get_db_cat_snapfuncs(srvid)
         for dbname in dbnames:
+            ins.execute(f"SET application_name TO 'maybe working on db {dbname}...'")
             # Skip that database if no module configured for it
             do_db_module = (None in db_mod_queries or dbname in db_mod_queries)
             do_db_cat = False
@@ -739,15 +743,18 @@ class PowaThread (threading.Thread):
                 continue
 
             self.logger.debug("Working on remote database %s", dbname)
+            ins.execute(f"SET application_name TO 'start working on db {dbname}...'")
             errors.extend(self.__get_db_src_data_onedb(now, dbname, ins,
                                                        db_mod_queries,
                                                        db_cat_queries,
                                                        forced_cat_dbnames))
+            ins.execute(f"SET application_name TO 'finished working on db {dbname}...'")
             if (self.is_stopping()):
                 if (len(errors) > 0):
                     self.__report_error(errors)
                 return []
 
+        ins.execute("SET application_name TO 'finished all db'")
         return errors
 
     def __get_db_src_data_onedb(self, now, dbname, ins, db_mod_queries,
@@ -796,7 +803,9 @@ class PowaThread (threading.Thread):
             errors.extend(copy_remote_data_to_repo(self, db_module, data_src,
                                                    data_src_sql, ins,
                                                    tmp_table))
+            ins.execute(f"SET application_name to 'done with dbmod {db_module}...'")
 
+        ins.execute(f"SET application_name to 'done with dbmods'")
         # then process the outdated catalogs on that databasr
         for row in db_cat_queries:
             (catname, query_source, tmp_table, excluded_dbnames) = row
@@ -824,7 +833,9 @@ class PowaThread (threading.Thread):
             errors.extend(copy_remote_data_to_repo(self, catname, data_src,
                                                    data_src_sql, ins,
                                                    tmp_table))
+            ins.execute(f"SET application_name to 'done dbcat with {catname}...'")
 
+        ins.execute(f"SET application_name to 'done with dbcats'")
         data_src.close()
         dbconn.close()
 

@@ -252,6 +252,9 @@ class PowaThread (threading.Thread):
                                     + "hypopg: %s" % (e))
                 self.__repo_conn.rollback()
 
+        cur.close()
+        self.__remote_conn.commit()
+        rep_cur.close()
         self.__disconnect_repo()
 
     def __check_powa(self):

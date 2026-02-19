@@ -254,7 +254,7 @@ class PowaThread (threading.Thread):
 
         cur.close()
         self.__remote_conn.commit()
-        rep_cur.close()
+        repo_cur.close()
         self.__disconnect_repo()
 
     def __check_powa(self):

@@ -76,12 +76,18 @@ class PowaThread (threading.Thread):
 
         self.logger.debug("Creating worker %s: %r" % (name, config))
 
-    def __repr__(self):
+    def _safe_dsn(self):
+        """
+        Returns a safe dsn, ie the dsn with a redacted password if any.
+        """
         dsn = self.__config["dsn"].copy()
         if ("password" in dsn):
             dsn["password"] = "<REDACTED>"
 
-        return ("%s: %s" % (self.name, dsn))
+        return dsn
+
+    def __repr__(self):
+        return ("%s: %s" % (self.name, self._safe_dsn()))
 
     def __maybe_load_powa(self, conn):
         """Loads Powa if it's not already and it's needed.
@@ -392,7 +398,7 @@ class PowaThread (threading.Thread):
                 self.__connected.set()
         except psycopg2.Error as e:
             self.logger.error("Error connecting on %s:\n%s" %
-                              (self.__config["dsn"], e))
+                              (self._safe_dsn(), e))
 
             if (self.__repo_conn is not None):
                 self.__report_error("%s" % (e))

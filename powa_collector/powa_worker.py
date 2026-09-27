@@ -538,7 +538,12 @@ class PowaThread (threading.Thread):
     def __get_global_snapfuncs(self, powa_ver):
         """
         Get the list of global snapshot functions (in the dedicated powa
-        database), and their associated query_src
+        database), and their associated query_src.
+
+        This function returns a (bool, array of snapfuncs) tuple.  If any error
+        happens when trying to fetch the snapshot function, (False, None) is
+        return so that caller can wait a try again later.  Otherwise, this
+        functions returns True and the found array, which could be empty.
         """
         srvid = self.__config["srvid"]
 
@@ -552,9 +557,9 @@ class PowaThread (threading.Thread):
             cur.execute("ROLLBACK TO snapshots")
             err = "Error while getting snapshot functions:\n%s" % (e)
             self.logger.error(err)
-            self.logger.error("Exiting worker for server %s..." % srvid)
-            self.__stopping.set()
-            return None
+            # self.logger.error("Exiting worker for server %s..." % srvid)
+            # self.__stopping.set()
+            return (False, None)
         cur.close()
 
         if (not snapfuncs):
@@ -562,9 +567,9 @@ class PowaThread (threading.Thread):
             self.logger.debug("Committing transaction")
             self.__repo_conn.commit()
             self.__disconnect_repo()
-            return None
+            return (True, None)
 
-        return snapfuncs
+        return (True, snapfuncs)
 
     def __get_global_src_data(self, powa_ver, ins):
         """
@@ -575,10 +580,25 @@ class PowaThread (threading.Thread):
         srvid = self.__config["srvid"]
         errors = []
 
-        snapfuncs = self.__get_global_snapfuncs(powa_ver)
-        if not snapfuncs:
-            # __get_global_snapfuncs already took care of reporting errors
-            return errors
+        # Retrieve the global snapshot functions, retrying every second if an
+        # error happened.
+        while True:
+            # this block can loop forever so check if user asked to stop at
+            # every iteration
+            if (self.is_stopping()):
+                return errors
+
+            (ok, snapfuncs) = self.__get_global_snapfuncs(powa_ver)
+
+            if (not ok):
+               # __get_global_snapfuncs already took care of reporting errors
+                self.logger.info("retrying in 1s...")
+                time.sleep(1)
+                continue
+            if not snapfuncs:
+               # __get_global_snapfuncs already took care of reporting errors
+               return errors
+            break
 
         data_src = self.__remote_conn.cursor()
 

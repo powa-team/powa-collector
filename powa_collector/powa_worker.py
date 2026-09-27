@@ -557,8 +557,6 @@ class PowaThread (threading.Thread):
             cur.execute("ROLLBACK TO snapshots")
             err = "Error while getting snapshot functions:\n%s" % (e)
             self.logger.error(err)
-            # self.logger.error("Exiting worker for server %s..." % srvid)
-            # self.__stopping.set()
             return (False, None)
         cur.close()
 
